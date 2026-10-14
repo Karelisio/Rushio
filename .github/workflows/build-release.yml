@@ -36,26 +36,38 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" > /dev/null
 
-      - name: Decode keystore
+      - name: Decode and check keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          # The alias is not sensitive: it is also accepted as a repository variable
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || vars.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          missing=""
           for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
-            if [ -z "${!name}" ]; then
-              echo "::error::Missing repository secret $name"
-              exit 1
-            fi
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
           done
-          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/rushio-release.jks"
-          echo "KEYSTORE_FILE=$RUNNER_TEMP/rushio-release.jks" >> "$GITHUB_ENV"
+          if [ -n "$missing" ]; then
+            echo "::error::Secrets manquants :$missing. À créer dans Settings > Secrets and variables > Actions, onglet Secrets, bouton New repository secret, avec exactement ces noms."
+            exit 1
+          fi
+
+          export KEYSTORE_FILE="$RUNNER_TEMP/rushio-release.jks"
+          # Line breaks and spaces pasted with the base64 text are ignored
+          if ! printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$KEYSTORE_FILE"; then
+            echo "::error::KEYSTORE_BASE64 n'est pas du base64 valide (voir le README pour l'obtenir)."
+            exit 1
+          fi
+
+          # Reports a wrong password or alias now rather than at the end of the build
+          java -Dstdout.encoding=UTF-8 .github/scripts/CheckKeystore.java
+          echo "KEYSTORE_FILE=$KEYSTORE_FILE" >> "$GITHUB_ENV"
 
       - name: Build release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || vars.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew :androidApp:assembleRelease --stacktrace
 
