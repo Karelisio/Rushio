@@ -29,6 +29,7 @@ import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -78,9 +79,23 @@ class MusixmatchProvider : LyricsProvider {
                 .orEmpty()
                 .filter { it.hasRichsync || it.hasSubtitles || it.hasLyrics }
 
-        return TrackMatcher.ranked(query, tracks, { it.name }, { it.artist }, { it.durationMs })
-            .take(limit)
-            .mapNotNull { fetchLyrics(it) }
+        var failure: Exception? = null
+        val candidates =
+            TrackMatcher.ranked(query, tracks, { it.name }, { it.artist }, { it.durationMs })
+                .take(limit)
+                .mapNotNull { track ->
+                    try {
+                        fetchLyrics(track)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        failure = e
+                        null
+                    }
+                }
+        // Report why (e.g. a captcha) rather than "no results" when every track failed
+        if (candidates.isEmpty()) failure?.let { throw it }
+        return candidates
     }
 
     private fun JsonObject.toTrack(): Track? {
@@ -98,15 +113,27 @@ class MusixmatchProvider : LyricsProvider {
     }
 
     private suspend fun fetchLyrics(track: Track): LyricsCandidate? {
+        var failure: Exception? = null
+
+        // Each kind of lyrics is optional, a failure only matters when none could be read
+        suspend fun <T> optional(block: suspend () -> T?): T? =
+            try {
+                block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failure = e
+                null
+            }
+
         val timedLines =
             if (track.hasRichsync) {
-                runCatching {
+                optional {
                         call("track.richsync.get") { parameter("track_id", track.id) }
                             .obj("richsync")
                             .str("richsync_body")
                             ?.let(RichsyncParser::parse)
                     }
-                    .getOrNull()
                     .orEmpty()
             } else emptyList()
 
@@ -115,31 +142,32 @@ class MusixmatchProvider : LyricsProvider {
         val lrc =
             LrcUtils.fromTimedLines(timedLines)
                 ?: if (track.hasSubtitles) {
-                    runCatching {
-                            call("track.subtitle.get") {
-                                    parameter("track_id", track.id)
-                                    parameter("subtitle_format", "lrc")
-                                }
-                                .obj("subtitle")
-                                .str("subtitle_body")
-                                ?.let(LrcUtils::normalize)
-                        }
-                        .getOrNull()
+                    optional {
+                        call("track.subtitle.get") {
+                                parameter("track_id", track.id)
+                                parameter("subtitle_format", "lrc")
+                            }
+                            .obj("subtitle")
+                            .str("subtitle_body")
+                            ?.let(LrcUtils::normalize)
+                    }
                 } else null
 
         val plain =
             lrc?.let(LrcUtils::toPlain)
                 ?: if (track.hasLyrics) {
-                    runCatching {
-                            call("track.lyrics.get") { parameter("track_id", track.id) }
-                                .obj("lyrics")
-                                .str("lyrics_body")
-                                ?.let(::cleanPlainLyrics)
-                        }
-                        .getOrNull()
+                    optional {
+                        call("track.lyrics.get") { parameter("track_id", track.id) }
+                            .obj("lyrics")
+                            .str("lyrics_body")
+                            ?.let(::cleanPlainLyrics)
+                    }
                 } else null
 
-        if (ttml == null && lrc == null && plain.isNullOrBlank()) return null
+        if (ttml == null && lrc == null && plain.isNullOrBlank()) {
+            failure?.let { throw it }
+            return null
+        }
 
         return LyricsCandidate(
             provider = id,
@@ -171,12 +199,13 @@ class MusixmatchProvider : LyricsProvider {
 
         val message = Json.parseToJsonElement(body).obj("message")
         val status = message.obj("header").long("status_code")
+        val hint = message.obj("header").str("hint")?.let { " ($it)" }.orEmpty()
         if (status == 401L) {
             // Expired token or captcha, a new token is fetched on the next call
             tokenMutex.withLock { token = null }
-            throw MusixmatchException("$method: unauthorized (401)")
+            throw MusixmatchException("$method: unauthorized (401)$hint")
         }
-        if (status != 200L) throw MusixmatchException("$method: status $status")
+        if (status != 200L) throw MusixmatchException("$method: status $status$hint")
 
         return message?.get("body")
     }
@@ -204,7 +233,12 @@ class MusixmatchProvider : LyricsProvider {
             val newToken = message.obj("body").str("user_token")
 
             if (status != 200L || newToken.isNullOrBlank() || newToken.contains("UpgradeOnly")) {
-                throw MusixmatchException("token.get failed (status $status)")
+                val hint = message.obj("header").str("hint")?.let { ", $it" }.orEmpty()
+                throw MusixmatchException("token.get failed (status $status$hint)")
+            }
+            // A token made of zeros is handed out to blocked networks, every search is empty
+            if (newToken.all { it == '0' }) {
+                throw MusixmatchException("token.get: network blocked by Musixmatch (empty token)")
             }
 
             token = newToken

@@ -53,6 +53,8 @@ class RushRepository(
         private const val TAG = "RushRepository"
     }
 
+    override val isGeniusLyricsAvailable: Boolean = IS_PRIVATE_TOKEN_AVAILABLE
+
     override suspend fun fetchSong(
         result: SearchResult,
         durationMs: Long?,
@@ -134,7 +136,12 @@ class RushRepository(
     }
 
     override suspend fun updateGenius(id: Long): Result<String, SourceError> {
-        if (!IS_PRIVATE_TOKEN_AVAILABLE) return Result.Error(SourceError.Network.REQUEST_FAILED)
+        if (!IS_PRIVATE_TOKEN_AVAILABLE) {
+            return Result.Error(
+                SourceError.Network.REQUEST_FAILED,
+                "Genius lyrics need a private Genius API token (GENIUS_API_PRIVATE), missing in this build",
+            )
+        }
 
         val geniusLyrics = withContext(Dispatchers.IO) { geniusApi.getGeniusLyrics(id) }
         return when (geniusLyrics) {

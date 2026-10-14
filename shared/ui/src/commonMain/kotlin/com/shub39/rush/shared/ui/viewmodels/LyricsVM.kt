@@ -86,6 +86,10 @@ class LyricsVM(
     private val _state = stateLayer.lyricsState
     private val _playbackInfo = MutableStateFlow(PlaybackInfo())
 
+    init {
+        _state.update { it.copy(geniusAvailable = repo.isGeniusLyricsAvailable) }
+    }
+
     val state =
         _state
             .asStateFlow()

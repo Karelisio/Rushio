@@ -62,7 +62,7 @@ fun ErrorCard(error: StringResource, debugMessage: String?, colors: Pair<Color, 
         AnimatedVisibility(visible = debugMessage != null) {
             TextButton(
                 onClick = {
-                    scope.launch { clipboard.copyToClipboard(text = debugMessage ?: "i am dumb") }
+                    scope.launch { clipboard.copyToClipboard(text = debugMessage.orEmpty()) }
                 },
                 modifier = Modifier.padding(top = 4.dp),
                 colors =

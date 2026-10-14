@@ -88,7 +88,8 @@ fun PlainLyrics(
     val items = if (state.source == Sources.LRCLIB) song.lyrics else song.geniusLyrics
     val nonEmptyItems = remember(items) { items?.filter { it.value.isNotBlank() } ?: emptyList() }
     val shouldAutoFetch =
-        state.source == Sources.GENIUS &&
+        state.geniusAvailable &&
+            state.source == Sources.GENIUS &&
             nonEmptyItems.isEmpty() &&
             !state.fetchingGenius.first &&
             state.fetchingGenius.second == null
@@ -196,23 +197,23 @@ fun PlainLyrics(
                                         Text(stringResource(Res.string.retry))
                                     }
 
-                                    TextButton(
-                                        onClick = {
-                                            scope.launch {
-                                                clipboard.copyToClipboard(
-                                                    it.second!!.debugMessage ?: "i am dumb"
-                                                )
-                                            }
-                                        },
-                                        colors =
-                                            ButtonDefaults.buttonColors(
-                                                contentColor = cardContent,
-                                                containerColor = Color.Transparent,
-                                            ),
-                                        modifier = Modifier.padding(vertical = 4.dp),
-                                    ) {
-                                        Text(stringResource(Res.string.copy_error))
-                                    }
+                                    val debugMessage = it.second!!.debugMessage
+                                    if (debugMessage != null)
+                                        TextButton(
+                                            onClick = {
+                                                scope.launch {
+                                                    clipboard.copyToClipboard(debugMessage)
+                                                }
+                                            },
+                                            colors =
+                                                ButtonDefaults.buttonColors(
+                                                    contentColor = cardContent,
+                                                    containerColor = Color.Transparent,
+                                                ),
+                                            modifier = Modifier.padding(vertical = 4.dp),
+                                        ) {
+                                            Text(stringResource(Res.string.copy_error))
+                                        }
                                 }
                             }
                         }

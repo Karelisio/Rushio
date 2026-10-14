@@ -19,6 +19,8 @@
 - Service de premier plan qui suit la chanson en cours même quand Rushio est fermé
 - Paroles en notification (au choix avec la fenêtre flottante) : ligne en cours et suivante, mise à jour à chaque ligne sans son ni vibration, visible sur l'écran de verrouillage
 - Écran « Fonctionnement en arrière-plan » : désactiver l'optimisation de la batterie, ouvrir le lancement d'applications (Honor/MagicOS, Huawei, Xiaomi…), conseils pour que Rushio reste actif
+- Sources de paroles vérifiées en conditions réelles : NetEase et QQ Music corrigés, reprises et karaokés écartés, blocage Musixmatch signalé
+- Bouton Genius masqué quand ses paroles ne sont pas disponibles (clé privée de Rush absente)
 
 ## Rush 7.1.1
 - Removed share card limit 

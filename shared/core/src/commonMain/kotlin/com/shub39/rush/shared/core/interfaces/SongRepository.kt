@@ -26,6 +26,9 @@ import com.shub39.rush.shared.core.enums.LyricsProviderId
 import kotlinx.coroutines.flow.Flow
 
 interface SongRepository {
+    /** Whether Genius lyrics can be fetched: they need a private Genius API token at build time. */
+    val isGeniusLyricsAvailable: Boolean
+
     // network
     /** Fetches lyrics for [result] from the lyrics sources cascade and saves the song. */
     suspend fun fetchSong(result: SearchResult, durationMs: Long? = null): Result<Song, SourceError>

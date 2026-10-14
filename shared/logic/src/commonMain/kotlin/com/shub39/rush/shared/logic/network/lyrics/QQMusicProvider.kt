@@ -16,6 +16,7 @@
  */
 package com.shub39.rush.shared.logic.network.lyrics
 
+import com.shub39.rush.shared.core.RushLogger
 import com.shub39.rush.shared.core.dataclasses.LyricsCandidate
 import com.shub39.rush.shared.core.dataclasses.TrackQuery
 import com.shub39.rush.shared.core.enums.LyricsProviderId
@@ -27,11 +28,21 @@ import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.contentType
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.io.encoding.Base64
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import org.koin.core.annotation.Single
 
 /** QQ Music, line synced lyrics only. */
@@ -41,6 +52,7 @@ class QQMusicProvider : LyricsProvider {
 
     private data class Song(
         val mid: String,
+        val id: Long?,
         val name: String,
         val artists: String,
         val album: String?,
@@ -51,7 +63,10 @@ class QQMusicProvider : LyricsProvider {
         lyricsHttpClient {
             defaultRequest {
                 header(HttpHeaders.UserAgent, DESKTOP_USER_AGENT)
-                header(HttpHeaders.Referrer, "https://y.qq.com/portal/player.html")
+                header(HttpHeaders.Referrer, "https://y.qq.com/")
+                // Lowers the anti bot checks applied to requests from outside China
+                header("X-Real-IP", CHINA_IP)
+                header("X-Forwarded-For", CHINA_IP)
             }
         }
     }
@@ -64,25 +79,35 @@ class QQMusicProvider : LyricsProvider {
     }
 
     private suspend fun searchSongs(query: TrackQuery): List<Song> {
-        val body =
-            client
-                .get("https://c.y.qq.com/soso/fcgi-bin/client_search_cp") {
-                    parameter("w", "${getMainTitle(query.title)} ${getMainArtist(query.artist)}")
-                    parameter("format", "json")
-                    parameter("p", 1)
-                    parameter("n", 10)
-                    parameter("cr", 1)
-                    parameter("new_json", 1)
-                    parameter("inCharset", "utf8")
-                    parameter("outCharset", "utf-8")
-                    parameter("platform", "yqq.json")
-                }
-                .bodyAsText()
+        val keywords = "${getMainTitle(query.title)} ${getMainArtist(query.artist)}"
+        // The desktop search is sometimes refused (code 2001), the smartbox is the fallback
+        val songs =
+            try {
+                desktopSearch(keywords)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                RushLogger.e(TAG, "desktop search failed, falling back to the smartbox", e)
+                emptyList()
+            }
+        return songs.ifEmpty { smartboxSearch(keywords) }
+    }
 
-        val songs = parseJson(body).obj("data").obj("song").arr("list") ?: return emptyList()
+    private suspend fun desktopSearch(keywords: String): List<Song> {
+        val data =
+            musicu(module = "music.search.SearchCgiService", method = "DoSearchForQQMusicDesktop") {
+                put("query", keywords)
+                put("search_type", 0)
+                put("num_per_page", 10)
+                put("page_num", 1)
+                put("grp", 1)
+            }
+
+        val songs = data.obj("body").obj("song").arr("list") ?: return emptyList()
         return songs.mapNotNull { song ->
             Song(
                 mid = song.str("mid") ?: song.str("songmid") ?: return@mapNotNull null,
+                id = song.long("id") ?: song.long("songid"),
                 name =
                     song.str("name")
                         ?: song.str("title")
@@ -96,26 +121,82 @@ class QQMusicProvider : LyricsProvider {
         }
     }
 
-    private suspend fun fetchLyrics(song: Song): LyricsCandidate? {
+    /** Search suggestions of the web player: fewer details, but no anti bot check. */
+    private suspend fun smartboxSearch(keywords: String): List<Song> {
         val body =
             client
-                .get("https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg") {
-                    parameter("songmid", song.mid)
+                .get("https://c.y.qq.com/splcloud/fcgi-bin/smartbox_new.fcg") {
+                    parameter("key", keywords)
                     parameter("format", "json")
-                    parameter("g_tk", 5381)
-                    parameter("loginUin", 0)
-                    parameter("hostUin", 0)
-                    parameter("inCharset", "utf8")
+                    parameter("inCharset", "utf-8")
                     parameter("outCharset", "utf-8")
-                    parameter("notice", 0)
-                    parameter("platform", "yqq.json")
-                    parameter("needNewCode", 0)
                 }
                 .bodyAsText()
 
-        val lrc =
-            parseJson(body).str("lyric")?.let(::decodeLyric)?.let(LrcUtils::normalize)
-                ?: return null
+        val items = parseJson(body).obj("data").obj("song").arr("itemlist") ?: return emptyList()
+        return items.mapNotNull { item ->
+            Song(
+                mid = item.str("mid") ?: return@mapNotNull null,
+                id = item.long("id"),
+                name = item.str("name") ?: return@mapNotNull null,
+                artists = item.str("singer").orEmpty(),
+                album = null,
+                durationMs = null,
+            )
+        }
+    }
+
+    /**
+     * Calls the "musicu" gateway used by the QQ Music clients and returns the `data` of the
+     * request.
+     */
+    private suspend fun musicu(
+        module: String,
+        method: String,
+        params: JsonObjectBuilder.() -> Unit,
+    ): JsonObject {
+        val request = buildJsonObject {
+            putJsonObject("comm") {
+                put("ct", "19")
+                put("cv", "1859")
+                put("uin", "0")
+            }
+            putJsonObject("req_1") {
+                put("module", module)
+                put("method", method)
+                putJsonObject("param", params)
+            }
+        }
+
+        val body =
+            client
+                .post("https://u.y.qq.com/cgi-bin/musicu.fcg") {
+                    contentType(ContentType.Application.Json)
+                    setBody(request.toString())
+                }
+                .bodyAsText()
+
+        val response = parseJson(body).obj("req_1")
+        require(response.long("code") == 0L) { "QQ Music $method code ${response.long("code")}" }
+        return response.obj("data") ?: JsonObject(emptyMap())
+    }
+
+    private suspend fun fetchLyrics(song: Song): LyricsCandidate? {
+        val lyric =
+            try {
+                musicu(module = "music.musichallSong.PlayLyricInfo", method = "GetPlayLyricInfo") {
+                        put("songMID", song.mid)
+                        song.id?.let { put("songID", it) }
+                    }
+                    .str("lyric")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                RushLogger.e(TAG, "musicu lyrics failed, falling back to the classic api", e)
+                classicLyrics(song.mid)
+            }
+
+        val lrc = lyric?.let(::decodeLyric)?.let(LrcUtils::normalize) ?: return null
 
         return LyricsCandidate(
             provider = id,
@@ -128,7 +209,29 @@ class QQMusicProvider : LyricsProvider {
         )
     }
 
+    private suspend fun classicLyrics(mid: String): String? {
+        val body =
+            client
+                .get("https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg") {
+                    parameter("songmid", mid)
+                    parameter("format", "json")
+                    parameter("nobase64", 1)
+                    parameter("g_tk", 5381)
+                    parameter("loginUin", 0)
+                    parameter("hostUin", 0)
+                    parameter("inCharset", "utf8")
+                    parameter("outCharset", "utf-8")
+                    parameter("notice", 0)
+                    parameter("platform", "yqq.json")
+                    parameter("needNewCode", 0)
+                }
+                .bodyAsText()
+        return parseJson(body).str("lyric")
+    }
+
     companion object {
+        private const val TAG = "QQMusicProvider"
+        private const val CHINA_IP = "116.25.146.177"
         private val numericEntity = Regex("""&#(\d+);""")
 
         /** QQ answers JSONP ("MusicJsonCallback({...})") unless format=json is honoured. */
