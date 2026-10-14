@@ -132,6 +132,9 @@ class LyricsUtilsTest {
         assertTrue(
             TrackMatcher.score(sunny, "晴天 (原唱 周杰伦)", "RyaVocal", 269_500) < TrackMatcher.MIN_SCORE
         )
+        assertEquals(0.0, TrackMatcher.score(sunny, "晴天 (女声版)", "GYBeat", 269_000))
+        // The same song under another spelling of the artist is still found
+        assertTrue(TrackMatcher.score(sunny, "晴天", "Jay Chou", 269_000) >= TrackMatcher.MIN_SCORE)
         // The original ranks before a karaoke or live version of the same artist
         val original = TrackMatcher.score(query, "Deja Vu", "Olivia Rodrigo", 215_000)
         assertTrue(

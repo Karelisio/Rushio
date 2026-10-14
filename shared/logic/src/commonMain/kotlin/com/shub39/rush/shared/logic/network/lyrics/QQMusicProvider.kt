@@ -64,6 +64,9 @@ class QQMusicProvider : LyricsProvider {
             defaultRequest {
                 header(HttpHeaders.UserAgent, DESKTOP_USER_AGENT)
                 header(HttpHeaders.Referrer, "https://y.qq.com/")
+                // Lowers the anti bot checks applied to requests from outside China
+                header("X-Real-IP", CHINA_IP)
+                header("X-Forwarded-For", CHINA_IP)
             }
         }
     }
@@ -76,9 +79,24 @@ class QQMusicProvider : LyricsProvider {
     }
 
     private suspend fun searchSongs(query: TrackQuery): List<Song> {
+        val keywords = "${getMainTitle(query.title)} ${getMainArtist(query.artist)}"
+        // The desktop search is sometimes refused (code 2001), the smartbox is the fallback
+        val songs =
+            try {
+                desktopSearch(keywords)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                RushLogger.e(TAG, "desktop search failed, falling back to the smartbox", e)
+                emptyList()
+            }
+        return songs.ifEmpty { smartboxSearch(keywords) }
+    }
+
+    private suspend fun desktopSearch(keywords: String): List<Song> {
         val data =
             musicu(module = "music.search.SearchCgiService", method = "DoSearchForQQMusicDesktop") {
-                put("query", "${getMainTitle(query.title)} ${getMainArtist(query.artist)}")
+                put("query", keywords)
                 put("search_type", 0)
                 put("num_per_page", 10)
                 put("page_num", 1)
@@ -99,6 +117,31 @@ class QQMusicProvider : LyricsProvider {
                     song.arr("singer")?.mapNotNull { it.str("name") }?.joinToString(", ") ?: "",
                 album = song.obj("album").str("name") ?: song.str("albumname"),
                 durationMs = song.long("interval")?.times(1000),
+            )
+        }
+    }
+
+    /** Search suggestions of the web player: fewer details, but no anti bot check. */
+    private suspend fun smartboxSearch(keywords: String): List<Song> {
+        val body =
+            client
+                .get("https://c.y.qq.com/splcloud/fcgi-bin/smartbox_new.fcg") {
+                    parameter("key", keywords)
+                    parameter("format", "json")
+                    parameter("inCharset", "utf-8")
+                    parameter("outCharset", "utf-8")
+                }
+                .bodyAsText()
+
+        val items = parseJson(body).obj("data").obj("song").arr("itemlist") ?: return emptyList()
+        return items.mapNotNull { item ->
+            Song(
+                mid = item.str("mid") ?: return@mapNotNull null,
+                id = item.long("id"),
+                name = item.str("name") ?: return@mapNotNull null,
+                artists = item.str("singer").orEmpty(),
+                album = null,
+                durationMs = null,
             )
         }
     }
@@ -188,6 +231,7 @@ class QQMusicProvider : LyricsProvider {
 
     companion object {
         private const val TAG = "QQMusicProvider"
+        private const val CHINA_IP = "116.25.146.177"
         private val numericEntity = Regex("""&#(\d+);""")
 
         /** QQ answers JSONP ("MusicJsonCallback({...})") unless format=json is honoured. */

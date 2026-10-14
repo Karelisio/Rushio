@@ -124,8 +124,18 @@ object TrackMatcher {
                 abs(query.durationMs - durationMs) / 1000.0
             } else null
 
-        // Same title from an unrelated artist: only trust it when durations agree
-        if (artistScore < 0.3 && (durationDiff == null || durationDiff > 3)) return 0.0
+        // Same title from an unrelated artist: only trust it when durations agree and the title
+        // has nothing more, "晴天 (女声版)" or "Song (Cover)" from someone else is a cover
+        if (artistScore < 0.3) {
+            if (durationDiff == null || durationDiff > 3) return 0.0
+            val candidate = normalize(title)
+            if (
+                candidate != normalize(query.title) &&
+                    candidate != normalize(getMainTitle(query.title))
+            ) {
+                return 0.0
+            }
+        }
 
         val durationScore =
             when {

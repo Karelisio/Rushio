@@ -58,6 +58,7 @@ class LiveProvidersTest {
 
         for (provider in providers) {
             var found = 0
+            var blocked = false
             for (track in tracks) {
                 val line =
                     when (
@@ -69,11 +70,15 @@ class LiveProvidersTest {
                             val lines = (best.lrc ?: best.plain).orEmpty().lines().size
                             "OK ${best.quality} « ${best.title} » ${best.artist}, $lines lignes"
                         }
-                        is Result.Error -> "ÉCHEC ${result.error} ${result.message.orEmpty()}"
+                        is Result.Error -> {
+                            // Musixmatch blocks datacenter networks like the CI runners
+                            if (result.message.orEmpty().contains("blocked")) blocked = true
+                            "ÉCHEC ${result.error} ${result.message.orEmpty()}"
+                        }
                     }
                 report.appendLine("${provider.id} | ${track.title} — ${track.artist} | $line")
             }
-            if (found == 0) broken += provider.id.name
+            if (found == 0 && !blocked) broken += provider.id.name
         }
 
         println(report)

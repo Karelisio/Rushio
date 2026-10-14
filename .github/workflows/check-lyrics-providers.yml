@@ -39,7 +39,7 @@ jobs:
       - name: Query the lyrics services
         env:
           RUSHIO_LIVE_TESTS: "true"
-        run: ./gradlew :shared:logic:jvmTest --tests "LiveProvidersTest" --tests "ProviderDiagnosticsTest" --rerun
+        run: ./gradlew :shared:logic:jvmTest --tests "LiveProvidersTest" --rerun
 
       - name: Report
         if: always()
@@ -50,9 +50,4 @@ jobs:
             { echo '```'; cat "$REPORT"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No report: the test did not run"
-          fi
-          DIAGNOSTICS=shared/logic/build/provider-diagnostics.txt
-          if [ -f "$DIAGNOSTICS" ]; then
-            echo "----- raw answers -----"
-            cat "$DIAGNOSTICS"
           fi

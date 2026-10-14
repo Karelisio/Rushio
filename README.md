@@ -97,5 +97,9 @@ base64 -w 0 rushio.jks   # Linux ; macOS : base64 -i rushio.jks
 Sous Windows (PowerShell) :
 `[Convert]::ToBase64String([IO.File]::ReadAllBytes("rushio.jks"))`
 
+Le workflow [`check-lyrics-providers.yml`](.github/workflows/check-lyrics-providers.yml) interroge
+les vraies sources de paroles avec quelques titres et publie un rapport (lancement manuel via « Run
+workflow »). Musixmatch bloque les serveurs de GitHub : son échec y est normal.
+
 Pour signer en local, exporter `KEYSTORE_FILE` (chemin du `.jks`), `KEYSTORE_PASSWORD`, `KEY_ALIAS`
 et `KEY_PASSWORD` avant de lancer `assembleRelease`.
