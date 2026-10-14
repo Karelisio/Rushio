@@ -46,6 +46,7 @@ data class ActionsState(
     val syncedAvailable: Boolean,
     val sync: Boolean,
     val autoChange: Boolean,
+    val geniusAvailable: Boolean = false,
 )
 
 @Composable
@@ -101,7 +102,12 @@ fun Actions(
         Icon(painter = painterResource(Res.drawable.copy), contentDescription = "Copy")
     }
 
-    if (state.selectedLines.isEmpty()) {
+    // Genius lyrics need a private token: without it, only lyrics saved earlier can be shown
+    val geniusLyricsSaved = state.song?.geniusLyrics?.isNotEmpty() == true
+    if (
+        state.selectedLines.isEmpty() &&
+            (state.geniusAvailable || geniusLyricsSaved || state.source == Sources.GENIUS)
+    ) {
         IconButton(
             onClick = {
                 action(

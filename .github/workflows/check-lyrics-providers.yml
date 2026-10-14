@@ -1,0 +1,53 @@
+name: Check lyrics providers
+
+# Queries the real lyrics services (LRCLIB, NetEase, QQ Music, Musixmatch) with a few songs.
+# Runs by hand ("Run workflow") or when the providers change on a development branch.
+on:
+  workflow_dispatch: {}
+  push:
+    branches-ignore:
+      - master
+      - main
+    paths:
+      - "shared/logic/src/**/network/**"
+      - "shared/logic/src/jvmTest/**"
+      - ".github/workflows/check-lyrics-providers.yml"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" > /dev/null
+
+      - name: Query the lyrics services
+        env:
+          RUSHIO_LIVE_TESTS: "true"
+        run: ./gradlew :shared:logic:jvmTest --tests "LiveProvidersTest" --rerun
+
+      - name: Report
+        if: always()
+        run: |
+          REPORT=shared/logic/build/live-providers.txt
+          if [ -f "$REPORT" ]; then
+            cat "$REPORT"
+            { echo '```'; cat "$REPORT"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No report: the test did not run"
+          fi

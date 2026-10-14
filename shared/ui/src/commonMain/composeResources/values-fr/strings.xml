@@ -87,7 +87,7 @@
     <string name="audio_permission">Permission d\'enregistrement sonore requise</string>
     <string name="audio_permission_info">Cet arrière-plan s\'anime avec la musique en cours de lecture</string>
     <string name="curve">Courbe</string>
-    <string name="copy_error">Erreur de copie</string>
+    <string name="copy_error">Copier l\'erreur</string>
     <string name="not_found">Introuvable</string>
     <string name="brat">Brat</string>
     <string name="changelog">Journal des modifications</string>

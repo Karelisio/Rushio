@@ -189,6 +189,7 @@ fun LyricsPageContent(
                 state.syncedAvailable,
                 state.sync,
                 state.autoChange,
+                state.geniusAvailable,
             ) {
                 ActionsState(
                     song = loadedSong,
@@ -197,6 +198,7 @@ fun LyricsPageContent(
                     syncedAvailable = state.syncedAvailable,
                     sync = state.sync,
                     autoChange = state.autoChange,
+                    geniusAvailable = state.geniusAvailable,
                 )
             }
 

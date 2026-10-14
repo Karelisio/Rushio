@@ -37,6 +37,8 @@ import org.jetbrains.compose.resources.StringResource
 data class LyricsPageState(
     // non-datastore
     val fetchingGenius: Pair<Boolean, LyricsState.LyricsError?> = Pair(false, null),
+    /** Genius lyrics need a private token: without it only lyrics saved earlier can be shown. */
+    val geniusAvailable: Boolean = false,
     val lyricsState: LyricsState = LyricsState.Idle,
     val autoChange: Boolean = false,
     val playingSong: SongMeta? = null,
