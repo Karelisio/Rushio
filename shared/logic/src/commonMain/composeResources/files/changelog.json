@@ -1,13 +1,36 @@
 [
   {
-    "version": "7.1.1",
+    "version": "1.0.0",
+    "changes": [
+      "Rushio : nouveau nom, nouvelle icône et nouvel identifiant (com.karelisio.rushio)",
+      "Toutes les fonctionnalités sont gratuites (RevenueCat et écrans Pro supprimés)",
+      "Aucune statistique d'utilisation collectée",
+      "Traduction française complétée",
+      "APK signé généré automatiquement par GitHub Actions",
+      "Nouvelles sources de paroles : NetEase, QQ Music et Musixmatch (non officiel), en plus de LRCLIB",
+      "Recherche en cascade : syllabe > ligne > texte brut, ordre des sources configurable",
+      "Réglages « Sources de paroles » : activer, désactiver et réordonner chaque source",
+      "Bouton « Changer de source » sur l'écran des paroles, avec comparaison des sources",
+      "Correction manuelle des paroles dans toutes les sources",
+      "Compensation de la latence Bluetooth : détection de la sortie audio active (appareil et type)",
+      "Décalage de synchronisation par appareil précis ou par type d'appareil (autoradio, casque, enceinte…)",
+      "Boutons −50 / +50 ms sur l'écran des paroles, enregistrables pour l'appareil, le type ou le titre",
+      "Réglages « Appareils audio et latence » : appareils connus et décalages modifiables",
+      "Paroles flottantes : fenêtre par-dessus les autres applications (ligne en cours et suivante), déplaçable, redimensionnable, opacité réglable, synchronisée avec le décalage de l'appareil",
+      "Service de premier plan qui suit la chanson en cours même quand Rushio est fermé",
+      "Paroles en notification (au choix avec la fenêtre flottante) : ligne en cours et suivante, mise à jour à chaque ligne sans son ni vibration, visible sur l'écran de verrouillage",
+      "Écran « Fonctionnement en arrière-plan » : désactiver l'optimisation de la batterie, ouvrir le lancement d'applications (Honor/MagicOS, Huawei, Xiaomi…), conseils pour que Rushio reste actif"
+    ]
+  },
+  {
+    "version": "Rush 7.1.1",
     "changes": [
       "Removed share card limit",
       "Miscellaneous Updates and Fixes"
     ]
   },
   {
-    "version": "7.1.0",
+    "version": "Rush 7.1.0",
     "changes": [
       "Removed unnecessary calls to Genius API",
       "Removed dead APIs",
@@ -16,7 +39,7 @@
     ]
   },
   {
-    "version": "7.0.7",
+    "version": "Rush 7.0.7",
     "changes": [
       "Fixed crashes in lower android versions",
       "Removed Onboarding and Changelog Sheets",
@@ -24,20 +47,20 @@
     ]
   },
   {
-    "version": "7.0.5",
+    "version": "Rush 7.0.5",
     "changes": [
       "Updated Translations",
       "Miscellaneous Updates and Fixes"
     ]
   },
   {
-    "version": "7.0.3",
+    "version": "Rush 7.0.3",
     "changes": [
       "Fixed Audio dependent Lyrics Backgrounds not applying"
     ]
   },
   {
-    "version": "7.0.2",
+    "version": "Rush 7.0.2",
     "changes": [
       "Revamped Navigation, Animations Several UI components",
       "Added better support for expanded screens",
@@ -47,32 +70,23 @@
     ]
   },
   {
-    "version": "6.7.1",
+    "version": "Rush 6.7.1",
     "changes": [
       "Revamped save page toolbar"
     ]
   },
   {
-    "version": "6.6.1",
+    "version": "Rush 6.6.1",
     "changes": [
       "Updated Translations"
     ]
   },
   {
-    "version": "6.6.0",
+    "version": "Rush 6.6.0",
     "changes": [
       "Updated Translations",
       "Improved song detection and fetching",
       "Miscellaneous UI improvements"
-    ]
-  },
-  {
-    "version": "6.5.3",
-    "changes": [
-      "Updated Translations",
-      "Fixed lyrics not loading #296",
-      "Fixed crashes on Lyrics correct dialog",
-      "Fixed duplicate results in Lyrics correct dialog"
     ]
   }
 ]

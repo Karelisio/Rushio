@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -44,9 +43,13 @@ import com.shub39.rush.shared.ui.saved.SavedPage
 import com.shub39.rush.shared.ui.saved.SavedPageAction
 import com.shub39.rush.shared.ui.searchsheet.SearchSheet
 import com.shub39.rush.shared.ui.setting.section.About
+import com.shub39.rush.shared.ui.setting.section.AudioDevicesPage
+import com.shub39.rush.shared.ui.setting.section.BackgroundLyricsPage
 import com.shub39.rush.shared.ui.setting.section.BackupPage
+import com.shub39.rush.shared.ui.setting.section.BatteryHelpPage
 import com.shub39.rush.shared.ui.setting.section.Changelog
 import com.shub39.rush.shared.ui.setting.section.LookAndFeelPage
+import com.shub39.rush.shared.ui.setting.section.LyricsSourcesPage
 import com.shub39.rush.shared.ui.setting.section.SettingRootPage
 import com.shub39.rush.shared.ui.share.SharePage
 import com.shub39.rush.shared.ui.share.component.SharePageEdit
@@ -60,10 +63,7 @@ import com.shub39.rush.shared.ui.viewmodels.ShareVM
 import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
-fun RushNavDisplay(
-    modifier: Modifier = Modifier,
-    paywall: @Composable (Boolean, () -> Unit) -> Unit,
-) {
+fun RushNavDisplay(modifier: Modifier = Modifier) {
     val globalVM: GlobalVM = koinViewModel()
     val globalState by globalVM.state.collectAsStateWithLifecycle()
 
@@ -133,7 +133,19 @@ fun RushNavDisplay(
                                     topLevelBackStack.isRouteOnTop(
                                         Routes.Lyrics.LyricsCustomisations
                                     ),
-                                onOpenSearchSheet = { topLevelBackStack.addTopLevel(Routes.Search) },
+                                onOpenSearchSheet = {
+                                    topLevelBackStack.addTopLevel(Routes.Search)
+                                },
+                                onManageSources = {
+                                    topLevelBackStack.addTopLevel(
+                                        Routes.Settings.SettingsLyricsSources
+                                    )
+                                },
+                                onManageDevices = {
+                                    topLevelBackStack.addTopLevel(
+                                        Routes.Settings.SettingsAudioDevices
+                                    )
+                                },
                             )
                         }
 
@@ -158,15 +170,7 @@ fun RushNavDisplay(
                             val viewModel = koinViewModel<ShareVM>()
                             val state by viewModel.state.collectAsStateWithLifecycle()
 
-                            SharePageEdit(
-                                isProUser = globalState.isProUser,
-                                state = state,
-                                onAction = viewModel::onAction,
-                                onNavigateToPaywall = {
-                                    globalVM.onAction(GlobalAction.OnPaywallOpened("share_page"))
-                                    topLevelBackStack.addTopLevel(Routes.Paywall)
-                                },
-                            )
+                            SharePageEdit(state = state, onAction = viewModel::onAction)
                         }
 
                         entry<Routes.Lyrics.LyricsCustomisations>(
@@ -176,8 +180,6 @@ fun RushNavDisplay(
                             val state by viewModel.state.collectAsStateWithLifecycle()
 
                             LyricsCustomisationsPage(
-                                isProUser = globalState.isProUser,
-                                onOpenPaywall = { topLevelBackStack.addTopLevel(Paywall) },
                                 onNavigateBack = { topLevelBackStack.removeLast() },
                                 state = state,
                                 onAction = viewModel::onAction,
@@ -224,14 +226,6 @@ fun RushNavDisplay(
                             }
                         }
 
-                        entry<Routes.Paywall>(metadata = verticalTransitionMetadata()) {
-                            DisposableEffect(Unit) {
-                                onDispose { globalVM.onAction(GlobalAction.OnRefreshSub) }
-                            }
-
-                            paywall(globalState.isProUser) { topLevelBackStack.removeLast() }
-                        }
-
                         entry<Routes.Settings.SettingsRoot>(
                             metadata = TwoPaneScene.twoPane() + horizontalTransitionMetadata()
                         ) {
@@ -241,10 +235,6 @@ fun RushNavDisplay(
                             SettingRootPage(
                                 notificationAccess = globalState.notificationAccess,
                                 state = state,
-                                onShowPaywall = {
-                                    globalVM.onAction(GlobalAction.OnPaywallOpened("settings"))
-                                    topLevelBackStack.addTopLevel(Routes.Paywall)
-                                },
                                 onAction = viewModel::onAction,
                                 onNavigateBack = { topLevelBackStack.removeLast() },
                                 onNavigateToLookAndFeel = {
@@ -254,6 +244,21 @@ fun RushNavDisplay(
                                 },
                                 onNavigateToBackup = {
                                     topLevelBackStack.addTopLevel(Routes.Settings.SettingsBackup)
+                                },
+                                onNavigateToLyricsSources = {
+                                    topLevelBackStack.addTopLevel(
+                                        Routes.Settings.SettingsLyricsSources
+                                    )
+                                },
+                                onNavigateToAudioDevices = {
+                                    topLevelBackStack.addTopLevel(
+                                        Routes.Settings.SettingsAudioDevices
+                                    )
+                                },
+                                onNavigateToBackgroundLyrics = {
+                                    topLevelBackStack.addTopLevel(
+                                        Routes.Settings.SettingsBackgroundLyrics
+                                    )
                                 },
                                 onNavigateToChangelog = {
                                     globalVM.onAction(GlobalAction.ChangelogOpened)
@@ -280,11 +285,6 @@ fun RushNavDisplay(
                                 state = state,
                                 onAction = viewModel::onAction,
                                 onNavigateBack = { topLevelBackStack.removeLast() },
-                                isProUser = globalState.isProUser,
-                                onNavigateToPaywall = {
-                                    globalVM.onAction(GlobalAction.OnPaywallOpened("look_and_feel"))
-                                    topLevelBackStack.addTopLevel(Routes.Paywall)
-                                },
                             )
                         }
 
@@ -295,6 +295,65 @@ fun RushNavDisplay(
                             val state by viewModel.state.collectAsStateWithLifecycle()
 
                             BackupPage(
+                                state = state,
+                                onAction = viewModel::onAction,
+                                onNavigateBack = { topLevelBackStack.removeLast() },
+                            )
+                        }
+
+                        entry<Routes.Settings.SettingsLyricsSources>(
+                            metadata = TwoPaneScene.twoPane() + horizontalTransitionMetadata()
+                        ) {
+                            val viewModel = koinViewModel<SettingsVM>()
+                            val state by viewModel.state.collectAsStateWithLifecycle()
+
+                            LyricsSourcesPage(
+                                state = state,
+                                onAction = viewModel::onAction,
+                                onNavigateBack = { topLevelBackStack.removeLast() },
+                            )
+                        }
+
+                        entry<Routes.Settings.SettingsAudioDevices>(
+                            metadata = TwoPaneScene.twoPane() + horizontalTransitionMetadata()
+                        ) {
+                            val viewModel = koinViewModel<SettingsVM>()
+                            val state by viewModel.state.collectAsStateWithLifecycle()
+
+                            AudioDevicesPage(
+                                state = state,
+                                onAction = viewModel::onAction,
+                                onNavigateBack = { topLevelBackStack.removeLast() },
+                            )
+                        }
+
+                        entry<Routes.Settings.SettingsBackgroundLyrics>(
+                            metadata = TwoPaneScene.twoPane() + horizontalTransitionMetadata()
+                        ) {
+                            val viewModel = koinViewModel<SettingsVM>()
+                            val state by viewModel.state.collectAsStateWithLifecycle()
+
+                            BackgroundLyricsPage(
+                                state = state,
+                                notificationAccess = globalState.notificationAccess,
+                                onRequestNotificationAccess = {
+                                    globalVM.onAction(GlobalAction.OnRequestNotificationAccess)
+                                },
+                                onAction = viewModel::onAction,
+                                onNavigateBack = { topLevelBackStack.removeLast() },
+                                onNavigateToBattery = {
+                                    topLevelBackStack.addTopLevel(Routes.Settings.SettingsBattery)
+                                },
+                            )
+                        }
+
+                        entry<Routes.Settings.SettingsBattery>(
+                            metadata = TwoPaneScene.twoPane() + horizontalTransitionMetadata()
+                        ) {
+                            val viewModel = koinViewModel<SettingsVM>()
+                            val state by viewModel.state.collectAsStateWithLifecycle()
+
+                            BatteryHelpPage(
                                 state = state,
                                 onAction = viewModel::onAction,
                                 onNavigateBack = { topLevelBackStack.removeLast() },

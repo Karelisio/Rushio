@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -73,11 +72,13 @@ fun SettingRootPage(
     modifier: Modifier = Modifier,
     notificationAccess: Boolean,
     state: SettingsPageState,
-    onShowPaywall: () -> Unit,
     onAction: (SettingsPageAction) -> Unit,
     onNavigateBack: () -> Unit,
     onNavigateToLookAndFeel: () -> Unit,
     onNavigateToBackup: () -> Unit,
+    onNavigateToLyricsSources: () -> Unit,
+    onNavigateToAudioDevices: () -> Unit,
+    onNavigateToBackgroundLyrics: () -> Unit,
     onNavigateToChangelog: () -> Unit,
     onNavigateToAppInfo: () -> Unit,
     onUpdateNotificationAccess: () -> Unit,
@@ -129,9 +130,6 @@ fun SettingRootPage(
                     ),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // Pro
-                rushProItem(onShowPaywall = onShowPaywall)
-
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         // navigate to look and feel
@@ -194,6 +192,100 @@ fun SettingRootPage(
                     }
                 }
 
+                // lyrics sources, audio latency and background lyrics
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        // navigate to lyrics sources
+                        SegmentedListItem(
+                            checked = lastRoute == Routes.Settings.SettingsLyricsSources,
+                            onCheckedChange = { onNavigateToLyricsSources() },
+                            shapes = segmentedListItemShapes(0, 3),
+                            colors = listItemColors(),
+                            content = { Text(text = stringResource(Res.string.lyrics_sources)) },
+                            supportingContent = {
+                                Text(
+                                    text = stringResource(Res.string.lyrics_sources_info),
+                                    maxLines = 1,
+                                    modifier = Modifier.basicMarquee(),
+                                )
+                            },
+                            leadingContent = {
+                                Icon(
+                                    painter = painterResource(Res.drawable.library_music),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            },
+                            trailingContent = {
+                                Icon(
+                                    painter = painterResource(Res.drawable.arrow_forward_ios),
+                                    contentDescription = null,
+                                )
+                            },
+                        )
+
+                        // navigate to audio devices and latency
+                        SegmentedListItem(
+                            checked = lastRoute == Routes.Settings.SettingsAudioDevices,
+                            onCheckedChange = { onNavigateToAudioDevices() },
+                            shapes = segmentedListItemShapes(1, 3),
+                            colors = listItemColors(),
+                            content = { Text(text = stringResource(Res.string.audio_devices)) },
+                            supportingContent = {
+                                Text(
+                                    text = stringResource(Res.string.audio_devices_info),
+                                    maxLines = 1,
+                                    modifier = Modifier.basicMarquee(),
+                                )
+                            },
+                            leadingContent = {
+                                Icon(
+                                    painter = painterResource(Res.drawable.bluetooth),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            },
+                            trailingContent = {
+                                Icon(
+                                    painter = painterResource(Res.drawable.arrow_forward_ios),
+                                    contentDescription = null,
+                                )
+                            },
+                        )
+
+                        // navigate to background lyrics (floating window)
+                        SegmentedListItem(
+                            checked =
+                                lastRoute == Routes.Settings.SettingsBackgroundLyrics ||
+                                    lastRoute == Routes.Settings.SettingsBattery,
+                            onCheckedChange = { onNavigateToBackgroundLyrics() },
+                            shapes = segmentedListItemShapes(2, 3),
+                            colors = listItemColors(),
+                            content = { Text(text = stringResource(Res.string.background_lyrics)) },
+                            supportingContent = {
+                                Text(
+                                    text = stringResource(Res.string.background_lyrics_info),
+                                    maxLines = 1,
+                                    modifier = Modifier.basicMarquee(),
+                                )
+                            },
+                            leadingContent = {
+                                Icon(
+                                    painter = painterResource(Res.drawable.quote),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            },
+                            trailingContent = {
+                                Icon(
+                                    painter = painterResource(Res.drawable.arrow_forward_ios),
+                                    contentDescription = null,
+                                )
+                            },
+                        )
+                    }
+                }
+
                 // navigate to notification access permission page
                 notificationToggle(notificationAccess, onUpdateNotificationAccess)
 
@@ -238,7 +330,7 @@ fun SettingRootPage(
                             supportingContent = {
                                 Text(
                                     text =
-                                        "Rush ${state.changelog.firstOrNull()?.version ?: "x.x.x"}"
+                                        "Rushio ${state.changelog.firstOrNull()?.version ?: "x.x.x"}"
                                 )
                             },
                             trailingContent = {
@@ -320,8 +412,6 @@ fun SettingRootPage(
         }
     }
 
-expect fun LazyListScope.rushProItem(onShowPaywall: () -> Unit)
-
 @PreviewWrapper(RushPreviewWrapper::class)
 @Preview
 @Composable
@@ -333,7 +423,9 @@ private fun Preview() {
         onNavigateBack = {},
         onNavigateToLookAndFeel = {},
         onNavigateToBackup = {},
-        onShowPaywall = {},
+        onNavigateToLyricsSources = {},
+        onNavigateToAudioDevices = {},
+        onNavigateToBackgroundLyrics = {},
         onNavigateToChangelog = {},
         onNavigateToAppInfo = {},
         onUpdateNotificationAccess = {},

@@ -36,14 +36,21 @@ sealed interface Routes : NavKey {
 
     data object Saved : Routes
 
-    data object Paywall : Routes
-
     sealed interface Settings : Routes {
         data object SettingsRoot : Settings
 
         data object SettingsLookAndFeel : Settings
 
         data object SettingsBackup : Settings
+
+        data object SettingsLyricsSources : Settings
+
+        data object SettingsAudioDevices : Settings
+
+        data object SettingsBackgroundLyrics : Settings
+
+        /** Keeping the app alive in the background, opened from [SettingsBackgroundLyrics]. */
+        data object SettingsBattery : Settings
 
         data object SettingsChangelog : Settings
 
@@ -61,7 +68,6 @@ class TopLevelBackStack(startKey: Routes = Routes.Saved) {
             is Routes.Settings -> Routes.Settings::class
             Routes.Search -> Routes.Search::class
             Routes.Saved -> Routes.Saved::class
-            Routes.Paywall -> Routes.Paywall::class
             Routes.Share.ShareRoot -> Routes.Share.ShareRoot::class
             Routes.Share.ShareEdit -> Routes.Share.ShareEdit::class
         }
@@ -79,6 +85,7 @@ class TopLevelBackStack(startKey: Routes = Routes.Saved) {
             if (route != Routes.Settings.SettingsRoot) {
                 // If adding a sub-page, ensure Root is always the predecessor
                 backStack.add(Routes.Settings.SettingsRoot)
+                route.parent()?.let(backStack::add)
             }
             backStack.add(route)
         } else {
@@ -97,6 +104,13 @@ class TopLevelBackStack(startKey: Routes = Routes.Saved) {
     }
 
     fun addTopLevel(route: Routes) = add(route)
+
+    /** Settings page a sub-page is opened from, kept below it so back goes there. */
+    private fun Routes.Settings.parent(): Routes.Settings? =
+        when (this) {
+            Routes.Settings.SettingsBattery -> Routes.Settings.SettingsBackgroundLyrics
+            else -> null
+        }
 
     fun removeLast() {
         if (backStack.size > 1) {

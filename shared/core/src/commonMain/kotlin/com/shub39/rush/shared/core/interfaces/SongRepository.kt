@@ -18,22 +18,33 @@ package com.shub39.rush.shared.core.interfaces
 
 import com.shub39.rush.shared.core.Result
 import com.shub39.rush.shared.core.SourceError
+import com.shub39.rush.shared.core.dataclasses.LyricsCandidate
 import com.shub39.rush.shared.core.dataclasses.SearchResult
 import com.shub39.rush.shared.core.dataclasses.Song
+import com.shub39.rush.shared.core.dataclasses.TrackQuery
+import com.shub39.rush.shared.core.enums.LyricsProviderId
 import kotlinx.coroutines.flow.Flow
 
 interface SongRepository {
     // network
-    suspend fun fetchSong(result: SearchResult): Result<Song, SourceError>
+    /** Fetches lyrics for [result] from the lyrics sources cascade and saves the song. */
+    suspend fun fetchSong(result: SearchResult, durationMs: Long? = null): Result<Song, SourceError>
 
     suspend fun searchGenius(query: String): Result<List<SearchResult>, SourceError>
 
     suspend fun updateGenius(id: Long): Result<String, SourceError>
 
-    suspend fun searchCorrections(
-        track: String,
-        artist: String,
-    ): Result<List<CorrectionSearchResult>, SourceError>
+    /** Lyrics found by every enabled source, for manual correction. */
+    suspend fun searchLyrics(query: TrackQuery): Result<List<LyricsCandidate>, SourceError>
+
+    /** Best lyrics of the lyrics sources cascade, without saving anything. */
+    suspend fun fetchBestLyrics(query: TrackQuery): LyricsCandidate?
+
+    /** Best lyrics found by a single source. */
+    suspend fun fetchLyricsFrom(
+        provider: LyricsProviderId,
+        query: TrackQuery,
+    ): Result<LyricsCandidate, SourceError>
 
     // database input/ output
     suspend fun insertSong(song: Song)
@@ -48,7 +59,11 @@ interface SongRepository {
 
     suspend fun deleteSong(id: Long)
 
-    suspend fun correctLyrics(id: Long, searchResult: CorrectionSearchResult)
+    /** Replaces the lyrics of song [id] with [candidate]. */
+    suspend fun applyLyrics(id: Long, candidate: LyricsCandidate)
+
+    /** Sets the sync offset fine tuning of song [id], added to the audio device offset. */
+    suspend fun setSongOffset(id: Long, offsetMs: Long)
 
     suspend fun deleteAllSongs()
 }

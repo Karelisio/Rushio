@@ -20,17 +20,26 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.shub39.rush.shared.core.AnalyticsEvent
 import com.shub39.rush.shared.core.Result
+import com.shub39.rush.shared.core.dataclasses.TrackQuery
+import com.shub39.rush.shared.core.enums.LyricsProviderId
+import com.shub39.rush.shared.core.enums.Sources
 import com.shub39.rush.shared.core.interfaces.AnalyticsWrapper
 import com.shub39.rush.shared.core.interfaces.LyricsPagePreferences
+import com.shub39.rush.shared.core.interfaces.LyricsSourcePreferences
 import com.shub39.rush.shared.core.interfaces.PaletteGenerator
 import com.shub39.rush.shared.core.interfaces.RomanizationProvider
 import com.shub39.rush.shared.core.interfaces.SongRepository
+import com.shub39.rush.shared.core.interfaces.SyncOffsetManager
 import com.shub39.rush.shared.core.listener.MediaListener
+import com.shub39.rush.shared.core.util.TrackMatcher
 import com.shub39.rush.shared.ui.errorStringRes
 import com.shub39.rush.shared.ui.lyrics.LyricsPageAction
 import com.shub39.rush.shared.ui.lyrics.LyricsPageState
 import com.shub39.rush.shared.ui.lyrics.LyricsState
+import com.shub39.rush.shared.ui.lyrics.OffsetTarget
 import com.shub39.rush.shared.ui.lyrics.PlaybackInfo
+import com.shub39.rush.shared.ui.lyrics.SourcePicker
+import com.shub39.rush.shared.ui.lyrics.SourceResult
 import com.shub39.rush.shared.ui.lyrics.breakLyrics
 import com.shub39.rush.shared.ui.lyrics.toSongUi
 import com.shub39.rush.shared.ui.sortMapByKeys
@@ -45,6 +54,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -64,9 +74,12 @@ class LyricsVM(
     @Provided private val paletteGenerator: PaletteGenerator,
     @Provided private val romanization: RomanizationProvider,
     @Provided private val analytics: AnalyticsWrapper,
+    @Provided private val lyricsSourcePreferences: LyricsSourcePreferences,
+    @Provided private val syncOffsetManager: SyncOffsetManager,
 ) : ViewModel() {
 
     private var observeJob: Job? = null
+    private val sourceJobs = mutableMapOf<LyricsProviderId, Job>()
     private var observePlaybackJob: Job? = null
     private var romanizationJob: Job? = null
 
@@ -90,7 +103,12 @@ class LyricsVM(
                 is LyricsPageAction.OnCorrectionSearch -> {
                     _state.update { it.copy(lrcCorrect = it.lrcCorrect.copy(searching = true)) }
 
-                    when (val result = repo.searchCorrections(action.track, action.artist)) {
+                    when (
+                        val result =
+                            repo.searchLyrics(
+                                TrackQuery(title = action.track, artist = action.artist)
+                            )
+                    ) {
                         is Result.Error -> {
                             _state.update {
                                 it.copy(
@@ -137,7 +155,7 @@ class LyricsVM(
                 }
 
                 is LyricsPageAction.OnUpdateSongLyrics -> {
-                    repo.correctLyrics(action.id, action.searchResult)
+                    repo.applyLyrics(action.id, action.candidate)
 
                     val song = repo.getSong(action.id).toSongUi()
 
@@ -146,15 +164,58 @@ class LyricsVM(
                         mapOf("title" to song.title, "artists" to song.artists),
                     )
 
+                    val syncedAvailable = song.syncedLyrics != null || song.ttmlLyrics != null
                     _state.update {
                         it.copy(
-                            syncedAvailable = song.syncedLyrics != null || song.ttmlLyrics != null,
+                            syncedAvailable = syncedAvailable,
+                            sync = it.sync && syncedAvailable,
+                            source = Sources.LRCLIB,
                             lyricsState = LyricsState.Loaded(song = song),
+                            sourcePicker = it.sourcePicker.copy(visible = false),
                         )
                     }
 
                     generateRomanizedLyrics()
                 }
+
+                is LyricsPageAction.OnShowSourcePicker -> {
+                    if (action.show) openSourcePicker()
+                    else
+                        _state.update {
+                            it.copy(sourcePicker = it.sourcePicker.copy(visible = false))
+                        }
+                }
+
+                is LyricsPageAction.OnRetrySource -> loadSource(action.provider)
+
+                is LyricsPageAction.OnAdjustOffset ->
+                    syncOffsetManager.adjustSession(action.deltaMs)
+
+                LyricsPageAction.OnResetOffsetAdjustment -> syncOffsetManager.resetSession()
+
+                LyricsPageAction.OnBluetoothPermissionChanged -> syncOffsetManager.refresh()
+
+                is LyricsPageAction.OnShowOffsetSheet -> {
+                    _state.update { it.copy(offsetSheet = action.show) }
+                }
+
+                is LyricsPageAction.OnSaveOffset -> {
+                    when (action.target) {
+                        OffsetTarget.DEVICE -> syncOffsetManager.saveForDevice()
+                        OffsetTarget.TYPE -> syncOffsetManager.saveForType()
+                        OffsetTarget.SONG -> {
+                            val song =
+                                (_state.value.lyricsState as? LyricsState.Loaded)?.song
+                                    ?: return@launch
+                            updateSongOffset(
+                                song.syncOffsetMs + _state.value.syncOffset.sessionAdjustMs
+                            )
+                            syncOffsetManager.resetSession()
+                        }
+                    }
+                }
+
+                LyricsPageAction.OnResetSongOffset -> updateSongOffset(0)
 
                 is LyricsPageAction.UpdateExtractedColors ->
                     launch(Dispatchers.Default) {
@@ -269,7 +330,8 @@ class LyricsVM(
                     MediaListener.pauseOrResume(_playbackInfo.value.speed == 0f)
 
                 is LyricsPageAction.OnSeek -> {
-                    MediaListener.seek(action.position)
+                    // lyric times are shifted by the sync offset, the player needs real times
+                    MediaListener.seek((action.position + currentOffset()).coerceAtLeast(0))
                     _playbackInfo.update { it.copy(position = action.position) }
                 }
 
@@ -315,6 +377,92 @@ class LyricsVM(
                     }
                 }
             }
+        }
+    }
+
+    /** Sync offset applied to the current lyrics: audio device + adjustment + song fine tuning. */
+    private fun currentOffset(): Long {
+        val state = _state.value
+        val songOffset = (state.lyricsState as? LyricsState.Loaded)?.song?.syncOffsetMs ?: 0
+        return state.syncOffset.totalOffset(songOffset)
+    }
+
+    private suspend fun updateSongOffset(offsetMs: Long) {
+        val song = (_state.value.lyricsState as? LyricsState.Loaded)?.song ?: return
+        repo.setSongOffset(song.id, offsetMs)
+
+        _state.update { state ->
+            val loaded = state.lyricsState as? LyricsState.Loaded
+            if (loaded == null || loaded.song.id != song.id) state
+            else
+                state.copy(
+                    lyricsState = loaded.copy(song = loaded.song.copy(syncOffsetMs = offsetMs))
+                )
+        }
+    }
+
+    private suspend fun openSourcePicker() {
+        val song = (_state.value.lyricsState as? LyricsState.Loaded)?.song ?: return
+        val providers =
+            lyricsSourcePreferences
+                .getSourcesFlow()
+                .first()
+                .filter { it.enabled }
+                .map { it.provider }
+        val sameSong = _state.value.sourcePicker.songId == song.id
+
+        _state.update {
+            it.copy(
+                sourcePicker =
+                    if (sameSong) it.sourcePicker.copy(visible = true, providers = providers)
+                    else SourcePicker(visible = true, songId = song.id, providers = providers)
+            )
+        }
+
+        providers
+            .filter { !sameSong || _state.value.sourcePicker.results[it] !is SourceResult.Found }
+            .forEach { loadSource(it) }
+    }
+
+    private fun loadSource(provider: LyricsProviderId) {
+        val song = (_state.value.lyricsState as? LyricsState.Loaded)?.song ?: return
+        val playing = _state.value.playingSong
+        val query =
+            TrackQuery(
+                title = song.title,
+                artist = song.artists,
+                album = song.album,
+                durationMs =
+                    playing?.duration?.takeIf {
+                        TrackMatcher.similarity(playing.title, song.title) >= 0.8
+                    },
+            )
+
+        sourceJobs[provider]?.cancel()
+        sourceJobs[provider] =
+            viewModelScope.launch {
+                updateSourceResult(song.id, provider, SourceResult.Loading)
+
+                val result =
+                    when (val response = repo.fetchLyricsFrom(provider, query)) {
+                        is Result.Success -> SourceResult.Found(response.data)
+                        is Result.Error -> SourceResult.Failed(errorStringRes(response.error))
+                    }
+
+                updateSourceResult(song.id, provider, result)
+            }
+    }
+
+    private fun updateSourceResult(songId: Long, provider: LyricsProviderId, result: SourceResult) {
+        _state.update {
+            if (it.sourcePicker.songId != songId) it
+            else
+                it.copy(
+                    sourcePicker =
+                        it.sourcePicker.copy(
+                            results = it.sourcePicker.results + (provider to result)
+                        )
+                )
         }
     }
 
@@ -382,6 +530,11 @@ class LyricsVM(
                 lyricsPrefs
                     .getHideUIFlow()
                     .onEach { pref -> _state.update { it.copy(hideUI = pref) } }
+                    .launchIn(this)
+
+                // Collecting the offset also keeps the audio output detection running
+                syncOffsetManager.state
+                    .onEach { offset -> _state.update { it.copy(syncOffset = offset) } }
                     .launchIn(this)
 
                 lyricsPrefs
@@ -470,16 +623,22 @@ class LyricsVM(
                 _state
                     .map { (it.lyricsState as? LyricsState.Loaded)?.song?.id }
                     .distinctUntilChanged()
-                    .onEach {
+                    .onEach { songId ->
                         if (_state.value.romanizationEnabled) {
                             generateRomanizedLyrics()
+                        }
+                        // results of the source picker belong to the previous song
+                        if (_state.value.sourcePicker.songId != songId) {
+                            _state.update {
+                                it.copy(sourcePicker = it.sourcePicker.copy(visible = false))
+                            }
                         }
                     }
                     .launchIn(this)
             }
     }
 
-    // Observes playback position and speed
+    // Observes playback position and speed, shifted by the sync offset
     private fun observePlayback() {
         observePlaybackJob?.cancel()
         observePlaybackJob =
@@ -490,10 +649,16 @@ class LyricsVM(
 
                         while (this@launch.isActive) {
                             val elapsed = (speed * start.elapsedNow().inWholeMilliseconds).toLong()
+                            val target = (position + elapsed - currentOffset()).coerceAtLeast(0)
 
                             _playbackInfo.update {
+                                // Position updates lag a bit: ignore small backward jumps but
+                                // follow seeks made in the player
+                                val backwards = it.position - target
                                 it.copy(
-                                    position = maxOf(it.position, position + elapsed),
+                                    position =
+                                        if (backwards in 1 until SEEK_TOLERANCE_MS) it.position
+                                        else target,
                                     speed = speed,
                                 )
                             }
@@ -502,5 +667,9 @@ class LyricsVM(
                         }
                     }
             }
+    }
+
+    private companion object {
+        const val SEEK_TOLERANCE_MS = 1500L
     }
 }

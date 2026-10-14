@@ -87,6 +87,7 @@ import com.shub39.rush.shared.ui.audioDependentBackgrounds
 import com.shub39.rush.shared.ui.component.ArtFromUrl
 import com.shub39.rush.shared.ui.component.Empty
 import com.shub39.rush.shared.ui.component.PageFill
+import com.shub39.rush.shared.ui.component.rememberBluetoothPermission
 import com.shub39.rush.shared.ui.conditional
 import com.shub39.rush.shared.ui.fadeBottomToTop
 import com.shub39.rush.shared.ui.fadeTopToBottom
@@ -105,8 +106,12 @@ import com.shub39.rush.shared.ui.lyrics.component.ErrorCard
 import com.shub39.rush.shared.ui.lyrics.component.FetchingCard
 import com.shub39.rush.shared.ui.lyrics.component.LineSyncedLyrics
 import com.shub39.rush.shared.ui.lyrics.component.LrcCorrectDialog
+import com.shub39.rush.shared.ui.lyrics.component.LyricsSourceLabel
+import com.shub39.rush.shared.ui.lyrics.component.LyricsSourcePickerSheet
 import com.shub39.rush.shared.ui.lyrics.component.PlainLyrics
 import com.shub39.rush.shared.ui.lyrics.component.SyllableSyncedLyrics
+import com.shub39.rush.shared.ui.lyrics.component.SyncOffsetControl
+import com.shub39.rush.shared.ui.lyrics.component.SyncOffsetSheet
 import com.shub39.rush.shared.ui.lyrics.getCardColors
 import com.shub39.rush.shared.ui.lyrics.getHypnoticColors
 import com.shub39.rush.shared.ui.lyrics.getWaveColors
@@ -129,6 +134,8 @@ expect fun LyricsPage(
     notificationAccess: Boolean,
     isCustomisationsOpened: Boolean,
     onOpenSearchSheet: () -> Unit,
+    onManageSources: () -> Unit,
+    onManageDevices: () -> Unit,
 )
 
 @Composable
@@ -143,9 +150,14 @@ fun LyricsPageContent(
     notificationAccess: Boolean,
     isCustomisationsOpened: Boolean,
     onOpenSearchSheet: () -> Unit,
+    onManageSources: () -> Unit,
+    onManageDevices: () -> Unit,
 ) =
     PageFill(modifier = modifier) {
         val lazyListState = rememberLazyListState()
+        val bluetoothPermission = rememberBluetoothPermission {
+            action(LyricsPageAction.OnBluetoothPermissionChanged)
+        }
 
         val (cardBackground, cardContent) = getCardColors(state)
         val (hypnoticColor1, hypnoticColor2) = getHypnoticColors(state)
@@ -346,6 +358,12 @@ fun LyricsPageContent(
                                                     modifier = Modifier.basicMarquee(),
                                                 )
 
+                                                LyricsSourceLabel(
+                                                    state = state,
+                                                    song = lyricsState.song,
+                                                    action = action,
+                                                )
+
                                                 // Actions Row
                                                 Row(
                                                     modifier =
@@ -461,6 +479,12 @@ fun LyricsPageContent(
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
                                                     modifier = Modifier.basicMarquee(),
+                                                )
+
+                                                LyricsSourceLabel(
+                                                    state = state,
+                                                    song = lyricsState.song,
+                                                    action = action,
                                                 )
                                             }
 
@@ -616,91 +640,139 @@ fun LyricsPageContent(
                     enter = fadeIn(MaterialTheme.motionScheme.fastSpatialSpec()),
                     exit = fadeOut(MaterialTheme.motionScheme.fastSpatialSpec()),
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        IconButton(
-                            onClick = { action(LyricsPageAction.OnPlayPrevious) },
-                            colors =
-                                IconButtonDefaults.outlinedIconButtonColors(
-                                    contentColor = cardBackground,
-                                    containerColor = cardContent,
-                                ),
-                            shapes =
-                                IconButtonShapes(
-                                    shape = CircleShape,
-                                    pressedShape = RoundedCornerShape(16.dp),
-                                ),
-                        ) {
-                            Icon(
-                                painter = painterResource(Res.drawable.skip_previous),
-                                contentDescription = "Skip Previous",
+                        if (state.syncOffset.supported) {
+                            SyncOffsetControl(
+                                offsetMs =
+                                    state.syncOffset.totalOffset(loadedSong?.syncOffsetMs ?: 0L),
+                                cardBackground = cardBackground,
+                                cardContent = cardContent,
+                                onAdjust = { action(LyricsPageAction.OnAdjustOffset(it)) },
+                                onOpen = { action(LyricsPageAction.OnShowOffsetSheet(true)) },
                             )
                         }
 
-                        IconButton(
-                            colors =
-                                IconButtonDefaults.iconButtonColors(
-                                    contentColor = cardBackground,
-                                    containerColor = cardContent,
-                                ),
-                            shapes =
-                                IconButtonShapes(
-                                    shape = CircleShape,
-                                    pressedShape = RoundedCornerShape(16.dp),
-                                ),
-                            onClick = { action(LyricsPageAction.OnPauseOrResume) },
-                            modifier =
-                                Modifier.conditional(
-                                        state.lyricsBackground in audioDependentBackgrounds
-                                    ) {
-                                        glowBackground(
-                                            (24 * glowMultiplier).dp,
-                                            CircleShape,
-                                            cardContent,
-                                        )
-                                    }
-                                    .height(60.dp)
-                                    .width(120.dp),
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(
-                                painter =
-                                    painterResource(
-                                        if (playbackInfo.speed == 0f) {
-                                            Res.drawable.play
-                                        } else {
-                                            Res.drawable.pause
-                                        }
+                            IconButton(
+                                onClick = { action(LyricsPageAction.OnPlayPrevious) },
+                                colors =
+                                    IconButtonDefaults.outlinedIconButtonColors(
+                                        contentColor = cardBackground,
+                                        containerColor = cardContent,
                                     ),
-                                contentDescription = "Pause or Resume",
-                            )
-                        }
+                                shapes =
+                                    IconButtonShapes(
+                                        shape = CircleShape,
+                                        pressedShape = RoundedCornerShape(16.dp),
+                                    ),
+                            ) {
+                                Icon(
+                                    painter = painterResource(Res.drawable.skip_previous),
+                                    contentDescription = "Skip Previous",
+                                )
+                            }
 
-                        IconButton(
-                            onClick = { action(LyricsPageAction.OnPlayNext) },
-                            shapes =
-                                IconButtonShapes(
-                                    shape = CircleShape,
-                                    pressedShape = RoundedCornerShape(16.dp),
-                                ),
-                            colors =
-                                IconButtonDefaults.outlinedIconButtonColors(
-                                    contentColor = cardBackground,
-                                    containerColor = cardContent,
-                                ),
-                        ) {
-                            Icon(
-                                painter = painterResource(Res.drawable.skip_next),
-                                contentDescription = "Skip Next",
-                            )
+                            IconButton(
+                                colors =
+                                    IconButtonDefaults.iconButtonColors(
+                                        contentColor = cardBackground,
+                                        containerColor = cardContent,
+                                    ),
+                                shapes =
+                                    IconButtonShapes(
+                                        shape = CircleShape,
+                                        pressedShape = RoundedCornerShape(16.dp),
+                                    ),
+                                onClick = { action(LyricsPageAction.OnPauseOrResume) },
+                                modifier =
+                                    Modifier.conditional(
+                                            state.lyricsBackground in audioDependentBackgrounds
+                                        ) {
+                                            glowBackground(
+                                                (24 * glowMultiplier).dp,
+                                                CircleShape,
+                                                cardContent,
+                                            )
+                                        }
+                                        .height(60.dp)
+                                        .width(120.dp),
+                            ) {
+                                Icon(
+                                    painter =
+                                        painterResource(
+                                            if (playbackInfo.speed == 0f) {
+                                                Res.drawable.play
+                                            } else {
+                                                Res.drawable.pause
+                                            }
+                                        ),
+                                    contentDescription = "Pause or Resume",
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { action(LyricsPageAction.OnPlayNext) },
+                                shapes =
+                                    IconButtonShapes(
+                                        shape = CircleShape,
+                                        pressedShape = RoundedCornerShape(16.dp),
+                                    ),
+                                colors =
+                                    IconButtonDefaults.outlinedIconButtonColors(
+                                        contentColor = cardBackground,
+                                        containerColor = cardContent,
+                                    ),
+                            ) {
+                                Icon(
+                                    painter = painterResource(Res.drawable.skip_next),
+                                    contentDescription = "Skip Next",
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Lyrics Correction from LRCLIB
+        // Quick switch to the lyrics of another source
+        if (state.sourcePicker.visible) {
+            LyricsSourcePickerSheet(
+                picker = state.sourcePicker,
+                currentSource = loadedSong?.lyricsSource,
+                action = action,
+                onManualSearch = {
+                    action(LyricsPageAction.OnShowSourcePicker(false))
+                    action(LyricsPageAction.OnLyricsCorrect(true))
+                    action(LyricsPageAction.OnSync(false))
+                    if (state.autoChange) action(LyricsPageAction.OnToggleAutoChange)
+                },
+                onManageSources = {
+                    action(LyricsPageAction.OnShowSourcePicker(false))
+                    onManageSources()
+                },
+            )
+        }
+
+        // Sync offset details and saving
+        if (state.offsetSheet) {
+            SyncOffsetSheet(
+                state = state,
+                action = action,
+                bluetoothPermission = bluetoothPermission,
+                onManageDevices = {
+                    action(LyricsPageAction.OnShowOffsetSheet(false))
+                    onManageDevices()
+                },
+            )
+        }
+
+        // Manual lyrics correction, searching every enabled source
         if (state.lyricsCorrect) {
             LrcCorrectDialog(
                 action = action,
@@ -761,5 +833,7 @@ private fun LyricsPagePreview() {
         playbackInfo = PlaybackInfo(),
         isCustomisationsOpened = false,
         onOpenSearchSheet = {},
+        onManageSources = {},
+        onManageDevices = {},
     )
 }

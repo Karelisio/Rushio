@@ -24,10 +24,16 @@ import com.shub39.rush.shared.core.backup.ExportState
 import com.shub39.rush.shared.core.backup.RestoreRepo
 import com.shub39.rush.shared.core.backup.RestoreResult
 import com.shub39.rush.shared.core.backup.RestoreState
+import com.shub39.rush.shared.core.dataclasses.OverlaySettings
+import com.shub39.rush.shared.core.enums.BackgroundLyricsMode
 import com.shub39.rush.shared.core.interfaces.AnalyticsWrapper
+import com.shub39.rush.shared.core.interfaces.BackgroundLyricsController
+import com.shub39.rush.shared.core.interfaces.BackgroundLyricsPreferences
 import com.shub39.rush.shared.core.interfaces.ChangelogManager
+import com.shub39.rush.shared.core.interfaces.LyricsSourcePreferences
 import com.shub39.rush.shared.core.interfaces.OtherPreferences
 import com.shub39.rush.shared.core.interfaces.SongRepository
+import com.shub39.rush.shared.core.interfaces.SyncOffsetManager
 import com.shub39.rush.shared.ui.setting.SettingsPageAction
 import com.shub39.rush.shared.ui.setting.SettingsPageState
 import kotlinx.coroutines.Job
@@ -53,6 +59,10 @@ class SettingsVM(
     @Provided private val restoreRepo: RestoreRepo,
     @Provided private val changelogManager: ChangelogManager,
     @Provided private val analytics: AnalyticsWrapper,
+    @Provided private val lyricsSourcePreferences: LyricsSourcePreferences,
+    @Provided private val syncOffsetManager: SyncOffsetManager,
+    @Provided private val backgroundPreferences: BackgroundLyricsPreferences,
+    @Provided private val backgroundController: BackgroundLyricsController,
 ) : ViewModel() {
 
     private var observeFlowsJob: Job? = null
@@ -143,6 +153,98 @@ class SettingsVM(
                 is SettingsPageAction.OnFontChange -> {
                     datastore.updateFonts(action.fonts)
                 }
+
+                is SettingsPageAction.OnToggleLyricsSource -> {
+                    val sources = _state.value.lyricsSources
+                    // At least one source must stay enabled
+                    if (!action.enabled && sources.count { it.enabled } <= 1) return@launch
+
+                    lyricsSourcePreferences.updateSources(
+                        sources.map {
+                            if (it.provider == action.provider) it.copy(enabled = action.enabled)
+                            else it
+                        }
+                    )
+                }
+
+                is SettingsPageAction.OnMoveLyricsSource -> {
+                    val sources = _state.value.lyricsSources.toMutableList()
+                    val from = sources.indexOfFirst { it.provider == action.provider }
+                    val to = from + action.offset
+                    if (from < 0 || to !in sources.indices) return@launch
+
+                    sources.add(to, sources.removeAt(from))
+                    lyricsSourcePreferences.updateSources(sources)
+                }
+
+                SettingsPageAction.OnResetLyricsSources -> lyricsSourcePreferences.resetSources()
+
+                is SettingsPageAction.OnSetDeviceOffset ->
+                    syncOffsetManager.setDeviceOffset(action.key, action.offsetMs)
+
+                is SettingsPageAction.OnRemoveDevice -> syncOffsetManager.removeDevice(action.key)
+
+                is SettingsPageAction.OnSetTypeOffset ->
+                    syncOffsetManager.setTypeOffset(action.type, action.offsetMs)
+
+                SettingsPageAction.OnBluetoothPermissionChanged -> syncOffsetManager.refresh()
+
+                is SettingsPageAction.OnSetBackgroundMode -> {
+                    backgroundPreferences.setMode(action.mode)
+                    if (
+                        action.mode == BackgroundLyricsMode.OVERLAY &&
+                            !backgroundController.canDrawOverlays()
+                    ) {
+                        backgroundController.requestOverlayPermission()
+                    }
+                    backgroundController.apply(action.mode)
+                }
+
+                SettingsPageAction.OnRequestOverlayPermission ->
+                    backgroundController.requestOverlayPermission()
+
+                SettingsPageAction.OnRefreshBackground -> {
+                    val permission = backgroundController.canDrawOverlays()
+                    val ignoringBattery = backgroundController.isIgnoringBatteryOptimizations()
+                    _state.update {
+                        it.copy(
+                            background =
+                                it.background.copy(
+                                    overlayPermission = permission,
+                                    ignoringBatteryOptimizations = ignoringBattery,
+                                )
+                        )
+                    }
+                    // Starts the service once the permission was granted in the system settings
+                    val mode = backgroundPreferences.getModeFlow().first()
+                    if (mode != BackgroundLyricsMode.OFF && !backgroundController.isRunning.value) {
+                        backgroundController.apply(mode)
+                    }
+                }
+
+                is SettingsPageAction.OnOverlayOpacityChange ->
+                    backgroundPreferences.updateOverlaySettings {
+                        it.copy(opacity = action.opacity)
+                    }
+
+                is SettingsPageAction.OnOverlayTextScaleChange ->
+                    backgroundPreferences.updateOverlaySettings {
+                        it.copy(textScale = action.textScale)
+                    }
+
+                SettingsPageAction.OnResetOverlayLayout ->
+                    backgroundPreferences.updateOverlaySettings {
+                        OverlaySettings(opacity = it.opacity)
+                    }
+
+                SettingsPageAction.OnRequestIgnoreBatteryOptimizations ->
+                    backgroundController.requestIgnoreBatteryOptimizations()
+
+                SettingsPageAction.OnOpenAutoStartSettings -> {
+                    if (!backgroundController.openAutoStartSettings()) {
+                        backgroundController.openAppDetails()
+                    }
+                }
             }
         }
     }
@@ -188,6 +290,38 @@ class SettingsVM(
                     .getMaterialYouFlow()
                     .onEach { pref ->
                         _state.update { it.copy(theme = it.theme.copy(materialTheme = pref)) }
+                    }
+                    .launchIn(this)
+
+                lyricsSourcePreferences
+                    .getSourcesFlow()
+                    .onEach { sources -> _state.update { it.copy(lyricsSources = sources) } }
+                    .launchIn(this)
+
+                syncOffsetManager.state
+                    .onEach { offset -> _state.update { it.copy(syncOffset = offset) } }
+                    .launchIn(this)
+
+                combine(
+                        backgroundPreferences.getModeFlow(),
+                        backgroundPreferences.getOverlaySettingsFlow(),
+                        backgroundController.isRunning,
+                    ) { mode, overlay, running ->
+                        _state.update {
+                            it.copy(
+                                background =
+                                    it.background.copy(
+                                        supported = backgroundController.isSupported,
+                                        mode = mode,
+                                        running = running,
+                                        overlayPermission = backgroundController.canDrawOverlays(),
+                                        overlay = overlay,
+                                        ignoringBatteryOptimizations =
+                                            backgroundController.isIgnoringBatteryOptimizations(),
+                                        manufacturer = backgroundController.manufacturer,
+                                    )
+                            )
+                        }
                     }
                     .launchIn(this)
             }

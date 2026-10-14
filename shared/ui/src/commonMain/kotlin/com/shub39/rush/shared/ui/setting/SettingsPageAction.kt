@@ -17,7 +17,10 @@
 package com.shub39.rush.shared.ui.setting
 
 import com.shub39.rush.shared.core.enums.AppTheme
+import com.shub39.rush.shared.core.enums.AudioDeviceType
+import com.shub39.rush.shared.core.enums.BackgroundLyricsMode
 import com.shub39.rush.shared.core.enums.Fonts
+import com.shub39.rush.shared.core.enums.LyricsProviderId
 import com.shub39.rush.shared.core.enums.PaletteStyle
 
 sealed interface SettingsPageAction {
@@ -40,4 +43,41 @@ sealed interface SettingsPageAction {
     data class OnRestoreSongs(val path: String) : SettingsPageAction
 
     data object OnExportSongs : SettingsPageAction
+
+    data class OnToggleLyricsSource(val provider: LyricsProviderId, val enabled: Boolean) :
+        SettingsPageAction
+
+    /** Moves a source up (-1) or down (+1) in the cascade order. */
+    data class OnMoveLyricsSource(val provider: LyricsProviderId, val offset: Int) :
+        SettingsPageAction
+
+    data object OnResetLyricsSources : SettingsPageAction
+
+    /** Sets the offset of a known audio device, null to use its type offset. */
+    data class OnSetDeviceOffset(val key: String, val offsetMs: Long?) : SettingsPageAction
+
+    data class OnRemoveDevice(val key: String) : SettingsPageAction
+
+    /** Sets the default offset of a device type, null to remove it. */
+    data class OnSetTypeOffset(val type: AudioDeviceType, val offsetMs: Long?) : SettingsPageAction
+
+    data object OnBluetoothPermissionChanged : SettingsPageAction
+
+    data class OnSetBackgroundMode(val mode: BackgroundLyricsMode) : SettingsPageAction
+
+    data object OnRequestOverlayPermission : SettingsPageAction
+
+    /** Checks permissions again, typically when coming back from the system settings. */
+    data object OnRefreshBackground : SettingsPageAction
+
+    data class OnOverlayOpacityChange(val opacity: Float) : SettingsPageAction
+
+    data class OnOverlayTextScaleChange(val textScale: Float) : SettingsPageAction
+
+    data object OnResetOverlayLayout : SettingsPageAction
+
+    data object OnRequestIgnoreBatteryOptimizations : SettingsPageAction
+
+    /** Opens the manufacturer auto start settings, or the app details when there are none. */
+    data object OnOpenAutoStartSettings : SettingsPageAction
 }

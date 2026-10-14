@@ -33,4 +33,6 @@ data class SongEntity(
     val syncedLyrics: String?,
     val dateAdded: Long = 0,
     @ColumnInfo(name = "ttmlLyrics", defaultValue = "NULL") val ttmlLyrics: String? = null,
+    @ColumnInfo(name = "lyricsSource", defaultValue = "NULL") val lyricsSource: String? = null,
+    @ColumnInfo(name = "syncOffset", defaultValue = "0") val syncOffset: Long = 0,
 )
