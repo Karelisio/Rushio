@@ -72,7 +72,8 @@ Le module `desktopApp` (et `iosApp`) hérité de Rush n'est pas maintenu dans Ru
 ## APK signé automatiquement (GitHub Actions)
 
 Le workflow [`build-release.yml`](.github/workflows/build-release.yml) compile un APK release signé à
-chaque push sur `main` (ou manuellement via « Run workflow ») et le joint en artefact au run.
+chaque push sur `master` (ou `main`), ou manuellement via « Run workflow », et le joint en artefact
+au run.
 
 Secrets à créer dans *Settings → Secrets and variables → Actions* :
 

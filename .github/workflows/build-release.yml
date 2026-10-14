@@ -2,7 +2,9 @@ name: Build signed release APK
 
 on:
   push:
+    # master is the default branch of the repository, main is kept in case it gets renamed
     branches:
+      - master
       - main
   workflow_dispatch: {}
 
