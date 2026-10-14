@@ -68,6 +68,9 @@ class NeteaseProvider : LyricsProvider {
             defaultRequest {
                 header(HttpHeaders.UserAgent, DESKTOP_USER_AGENT)
                 header(HttpHeaders.Referrer, "https://music.163.com/")
+                // NetEase hides or encrypts search results for IPs outside mainland China
+                header("X-Real-IP", CHINA_IP)
+                header("X-Forwarded-For", CHINA_IP)
             }
         }
     }
@@ -80,18 +83,43 @@ class NeteaseProvider : LyricsProvider {
     }
 
     private suspend fun searchSongs(query: TrackQuery): List<Song> {
+        val keywords = "${getMainTitle(query.title)} ${getMainArtist(query.artist)}"
+        // The desktop cloud search is the most reliable, the web search is the fallback
+        val songs =
+            try {
+                parseSongs(
+                    eapi("/api/cloudsearch/pc") {
+                        put("s", keywords)
+                        put("type", 1)
+                        put("limit", 10)
+                        put("offset", 0)
+                        put("total", true)
+                    }
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                RushLogger.e(TAG, "cloud search failed, falling back to the web search", e)
+                emptyList()
+            }
+        if (songs.isNotEmpty()) return songs
+
         val body =
             client
                 .get("https://music.163.com/api/search/get/web") {
-                    parameter("s", "${getMainTitle(query.title)} ${getMainArtist(query.artist)}")
+                    parameter("s", keywords)
                     parameter("type", 1)
                     parameter("offset", 0)
                     parameter("limit", 10)
                     parameter("total", true)
                 }
                 .bodyAsText()
+        return parseSongs(Json.parseToJsonElement(body).jsonObject)
+    }
 
-        val songs = Json.parseToJsonElement(body).obj("result").arr("songs") ?: return emptyList()
+    /** Songs of a search answer, from the web ("artists") or cloud ("ar") search. */
+    private fun parseSongs(response: JsonObject): List<Song> {
+        val songs = response.obj("result").arr("songs") ?: return emptyList()
         return songs.mapNotNull { song ->
             val songId = song.long("id") ?: return@mapNotNull null
             Song(
@@ -153,7 +181,24 @@ class NeteaseProvider : LyricsProvider {
         return Json.parseToJsonElement(body).jsonObject
     }
 
-    private suspend fun eapiLyrics(songId: Long): JsonObject {
+    private suspend fun eapiLyrics(songId: Long): JsonObject =
+        eapi("/api/song/lyric/v1") {
+            put("id", songId)
+            put("cp", false)
+            put("tv", 0)
+            put("lv", 0)
+            put("rv", 0)
+            put("kv", 0)
+            put("yv", 0)
+            put("ytv", 0)
+            put("yrv", 0)
+        }
+
+    /** Calls an "eapi" endpoint of the desktop client, signed and encrypted like it does. */
+    private suspend fun eapi(
+        apiPath: String,
+        params: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit,
+    ): JsonObject {
         val now = Clock.System.now().toEpochMilliseconds()
         val header =
             linkedMapOf(
@@ -172,15 +217,7 @@ class NeteaseProvider : LyricsProvider {
 
         val payload =
             buildJsonObject {
-                    put("id", songId)
-                    put("cp", false)
-                    put("tv", 0)
-                    put("lv", 0)
-                    put("rv", 0)
-                    put("kv", 0)
-                    put("yv", 0)
-                    put("ytv", 0)
-                    put("yrv", 0)
+                    params()
                     put(
                         "header",
                         buildJsonObject { header.forEach { (key, value) -> put(key, value) } },
@@ -191,9 +228,8 @@ class NeteaseProvider : LyricsProvider {
         val body =
             client
                 .submitForm(
-                    url = "https://interface3.music.163.com/eapi/song/lyric/v1",
-                    formParameters =
-                        parameters { append("params", eapiParams("/api/song/lyric/v1", payload)) },
+                    url = "https://interface3.music.163.com/eapi${apiPath.removePrefix("/api")}",
+                    formParameters = parameters { append("params", eapiParams(apiPath, payload)) },
                 ) {
                     header(
                         HttpHeaders.Cookie,
@@ -203,13 +239,14 @@ class NeteaseProvider : LyricsProvider {
                 .bodyAsText()
 
         val json = Json.parseToJsonElement(body).jsonObject
-        require(json.long("code") == 200L) { "NetEase eapi code ${json["code"]}" }
+        require(json.long("code") == 200L) { "NetEase eapi $apiPath code ${json["code"]}" }
         return json
     }
 
     companion object {
         private const val TAG = "NeteaseProvider"
         private const val EAPI_KEY = "e82ckenh8dichen8"
+        private const val CHINA_IP = "116.25.146.177"
 
         /** Signs and encrypts an eapi request body for [apiPath] (e.g. "/api/song/lyric/v1"). */
         fun eapiParams(apiPath: String, payload: String): String {
