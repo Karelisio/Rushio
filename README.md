@@ -77,19 +77,25 @@ au run.
 
 Secrets à créer dans *Settings → Secrets and variables → Actions* :
 
-| Secret              | Contenu                                    |
-|---------------------|--------------------------------------------|
-| `KEYSTORE_BASE64`   | le keystore `.jks` encodé en base64        |
-| `KEYSTORE_PASSWORD` | le mot de passe du keystore                |
-| `KEY_ALIAS`         | l'alias de la clé                          |
-| `KEY_PASSWORD`      | le mot de passe de la clé                  |
+| Secret              | Contenu                                                              |
+|---------------------|----------------------------------------------------------------------|
+| `KEYSTORE_BASE64`   | le keystore `.jks` encodé en base64                                  |
+| `KEYSTORE_PASSWORD` | le mot de passe du keystore                                          |
+| `KEY_ALIAS`         | l'alias de la clé (accepté aussi comme *variable* du dépôt)          |
+| `KEY_PASSWORD`      | le mot de passe de la clé : avec `keytool`, le même que le keystore  |
+
+Le workflow vérifie le keystore avant de compiler et indique précisément le secret manquant ou
+incorrect.
 
 Créer un keystore et obtenir sa version base64 :
 
 ```bash
 keytool -genkeypair -v -keystore rushio.jks -alias rushio -keyalg RSA -keysize 4096 -validity 10000
-base64 -w 0 rushio.jks   # à coller dans le secret KEYSTORE_BASE64
+base64 -w 0 rushio.jks   # Linux ; macOS : base64 -i rushio.jks
 ```
+
+Sous Windows (PowerShell) :
+`[Convert]::ToBase64String([IO.File]::ReadAllBytes("rushio.jks"))`
 
 Pour signer en local, exporter `KEYSTORE_FILE` (chemin du `.jks`), `KEYSTORE_PASSWORD`, `KEY_ALIAS`
 et `KEY_PASSWORD` avant de lancer `assembleRelease`.
