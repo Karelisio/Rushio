@@ -14,12 +14,10 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import com.shub39.rush.shared.logic.network.lyrics.NeteaseProvider
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.HttpRequestBuilder
-import io.ktor.client.request.forms.submitForm
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -29,7 +27,6 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
-import io.ktor.http.parameters
 import java.io.File
 import kotlin.test.Test
 import kotlinx.coroutines.runBlocking
@@ -52,7 +49,7 @@ class ProviderDiagnosticsTest {
                 val response = call()
                 val body = response.bodyAsText()
                 report.appendLine("## $label -> ${response.status.value}")
-                report.appendLine(body.replace("\n", " ").take(700))
+                report.appendLine(body.replace("\n", " ").replace(Regex("\\s+"), " ").take(600))
                 body
             } catch (e: Exception) {
                 report.appendLine("## $label -> ${e::class.simpleName}: ${e.message}")
@@ -62,173 +59,92 @@ class ProviderDiagnosticsTest {
         return text
     }
 
-    private fun HttpRequestBuilder.desktop(referer: String) {
+    private fun HttpRequestBuilder.qq(chinaIp: Boolean = false) {
         header("User-Agent", UA)
-        header("Referer", referer)
+        header("Referer", "https://y.qq.com/")
+        if (chinaIp) {
+            header("X-Real-IP", CHINA_IP)
+            header("X-Forwarded-For", CHINA_IP)
+        }
     }
+
+    private suspend fun musicu(label: String, body: String, chinaIp: Boolean = false) =
+        probe(label) {
+            client.post("https://u.y.qq.com/cgi-bin/musicu.fcg") {
+                qq(chinaIp)
+                contentType(ContentType.Application.Json)
+                setBody(body)
+            }
+        }
 
     @Test
     fun dumpRawAnswers(): Unit = runBlocking {
         if (System.getenv("RUSHIO_LIVE_TESTS") != "true") return@runBlocking
-        val query = "Bohemian Rhapsody Queen"
+        val query = "晴天 周杰伦"
+        val desktopSearch =
+            """{"comm":{"ct":"19","cv":"1859","uin":"0"},"req_1":{"method":"DoSearchForQQMusicDesktop","module":"music.search.SearchCgiService","param":{"grp":1,"num_per_page":3,"page_num":1,"query":"$query","search_type":0}}}"""
 
-        // NetEase: web search, same with a mainland China IP, eapi cloud search
-        probe("netease web search") {
-            client.get("https://music.163.com/api/search/get/web") {
-                desktop("https://music.163.com/")
-                parameter("s", query)
-                parameter("type", 1)
-                parameter("limit", 3)
+        musicu("qq musicu desktop search + China IP", desktopSearch, chinaIp = true)
+        musicu(
+            "qq musicu mobile search",
+            """{"comm":{"ct":11,"cv":"1003006","v":"1003006","tmeAppID":"qqmusic","uin":"0","format":"json"},"req_1":{"module":"music.search.SearchCgiService","method":"DoSearchForQQMusicMobile","param":{"query":"$query","search_type":0,"num_per_page":3,"page_num":1,"highlight":0,"grp":1}}}""",
+        )
+        musicu(
+            "qq musicu lite search",
+            """{"comm":{"ct":"1","cv":"0","uin":"0"},"req_1":{"module":"music.search.SearchCgiService","method":"DoSearchForQQMusicLite","param":{"query":"$query","search_type":0,"num_per_page":3,"page_num":1}}}""",
+        )
+        probe("qq smartbox") {
+            client.get("https://c.y.qq.com/splcloud/fcgi-bin/smartbox_new.fcg") {
+                qq()
+                parameter("key", query)
+                parameter("format", "json")
+                parameter("inCharset", "utf-8")
+                parameter("outCharset", "utf-8")
             }
         }
-        val neteaseAnswers = mutableListOf<String>()
-        neteaseAnswers +=
-            probe("netease web search + X-Real-IP") {
-                client.get("https://music.163.com/api/search/get/web") {
-                    desktop("https://music.163.com/")
-                    header("X-Real-IP", CHINA_IP)
-                    header("X-Forwarded-For", CHINA_IP)
-                    parameter("s", query)
-                    parameter("type", 1)
-                    parameter("limit", 3)
-                }
-            }
-        neteaseAnswers +=
-            probe("netease cloudsearch pc + X-Real-IP") {
-                client.submitForm(
-                    url = "https://music.163.com/api/cloudsearch/pc",
-                    formParameters =
-                        parameters {
-                            append("s", query)
-                            append("type", "1")
-                            append("limit", "3")
-                            append("offset", "0")
-                        },
-                ) {
-                    desktop("https://music.163.com/")
-                    header("X-Real-IP", CHINA_IP)
-                    header("Cookie", "appver=2.9.11; os=pc")
-                }
-            }
-        neteaseAnswers +=
-            probe("netease eapi cloudsearch + X-Real-IP") {
-                val payload =
-                    """{"s":"$query","type":1,"limit":3,"offset":0,"total":true,"header":{"os":"pc","appver":"2.9.11"}}"""
-                client.submitForm(
-                    url = "https://interface3.music.163.com/eapi/cloudsearch/pc",
-                    formParameters =
-                        parameters {
-                            append(
-                                "params",
-                                NeteaseProvider.eapiParams("/api/cloudsearch/pc", payload),
-                            )
-                        },
-                ) {
-                    desktop("https://music.163.com/")
-                    header("X-Real-IP", CHINA_IP)
-                    header("Cookie", "appver=2.9.11; os=pc")
-                }
-            }
-        val neteaseId =
-            neteaseAnswers.firstNotNullOfOrNull {
-                Regex("\"songs\":\\[\\{\"(?:name\":\"[^\"]*\",\")?id\":(\\d+)")
-                    .find(it)
-                    ?.groupValues
-                    ?.get(1)
-            }
-        report.appendLine("netease first song id: $neteaseId\n")
-        if (neteaseId != null) {
-            probe("netease classic lyric") {
-                client.get("https://music.163.com/api/song/lyric") {
-                    desktop("https://music.163.com/")
-                    header("X-Real-IP", CHINA_IP)
-                    parameter("id", neteaseId)
-                    parameter("lv", -1)
-                    parameter("tv", -1)
-                }
+        probe("qq client_search_cp + China IP") {
+            client.get("https://c.y.qq.com/soso/fcgi-bin/client_search_cp") {
+                qq(chinaIp = true)
+                parameter("w", query)
+                parameter("format", "json")
+                parameter("p", 1)
+                parameter("n", 3)
+                parameter("new_json", 1)
             }
         }
 
-        // QQ Music: musicu search, then lyrics of the first song
-        val qqSearch =
-            probe("qq musicu search") {
-                client.post("https://u.y.qq.com/cgi-bin/musicu.fcg") {
-                    desktop("https://y.qq.com/")
-                    contentType(ContentType.Application.Json)
-                    setBody(
-                        """{"comm":{"ct":"19","cv":"1859","uin":"0"},"req_1":{"method":"DoSearchForQQMusicDesktop","module":"music.search.SearchCgiService","param":{"grp":1,"num_per_page":3,"page_num":1,"query":"$query","search_type":0}}}"""
-                    )
-                }
-            }
-        val mid = Regex("\"mid\":\"([0-9A-Za-z]{14})\"").find(qqSearch)?.groupValues?.get(1)
-        val songId = Regex("\"id\":(\\d{5,})").find(qqSearch)?.groupValues?.get(1)
-        report.appendLine("qq first song: mid=$mid id=$songId\n")
-        if (mid != null) {
-            probe("qq fcg_query_lyric_new") {
-                client.get("https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg") {
-                    desktop("https://y.qq.com/")
-                    parameter("songmid", mid)
-                    parameter("format", "json")
-                    parameter("nobase64", 1)
-                    parameter("g_tk", 5381)
-                }
-            }
-            probe("qq musicu GetPlayLyricInfo") {
-                client.post("https://u.y.qq.com/cgi-bin/musicu.fcg") {
-                    desktop("https://y.qq.com/")
-                    contentType(ContentType.Application.Json)
-                    setBody(
-                        """{"comm":{"ct":"19","cv":"1859","uin":"0"},"req_1":{"module":"music.musichallSong.PlayLyricInfo","method":"GetPlayLyricInfo","param":{"songMID":"$mid","songID":${songId ?: 0}}}}"""
-                    )
-                }
+        // Lyrics of 晴天 (songmid 0039MnYb0qxYhV, songid 97773), independently of the search
+        probe("qq fcg_query_lyric_new") {
+            client.get("https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg") {
+                qq()
+                parameter("songmid", "0039MnYb0qxYhV")
+                parameter("format", "json")
+                parameter("nobase64", 1)
+                parameter("g_tk", 5381)
             }
         }
+        musicu(
+            "qq musicu GetPlayLyricInfo",
+            """{"comm":{"ct":"19","cv":"1859","uin":"0"},"req_1":{"module":"music.musichallSong.PlayLyricInfo","method":"GetPlayLyricInfo","param":{"songMID":"0039MnYb0qxYhV","songID":97773}}}""",
+        )
 
-        // Musixmatch: token, search, subtitles, macro call
-        val tokenBody =
-            probe("musixmatch token.get") {
-                client.get("$MXM/token.get") {
-                    header("Cookie", "x-mxm-token-guid=")
-                    parameter("app_id", MXM_APP)
-                    parameter("user_language", "en")
-                    parameter("t", System.currentTimeMillis())
-                }
-            }
-        val token = Regex("\"user_token\":\"([^\"]+)\"").find(tokenBody)?.groupValues?.get(1)
-        if (token != null) {
-            val search =
-                probe("musixmatch track.search") {
-                    client.get("$MXM/track.search") {
-                        parameter("app_id", MXM_APP)
-                        parameter("usertoken", token)
-                        parameter("q_track", "Bohemian Rhapsody")
-                        parameter("q_artist", "Queen")
-                        parameter("page_size", 2)
-                        parameter("s_track_rating", "desc")
+        // Musixmatch: tokens of the desktop and iOS apps
+        for ((label, url) in
+            listOf(
+                "desktop" to
+                    "https://apic-desktop.musixmatch.com/ws/1.1/token.get?app_id=web-desktop-app-v1.0",
+                "ios" to "https://apic.musixmatch.com/ws/1.1/token.get?app_id=mac-ios-v2.0",
+            )) {
+            val body =
+                probe("musixmatch $label token.get") {
+                    client.get(url) {
+                        header("Cookie", "AWSELBCORS=0; AWSELB=0")
+                        parameter("user_language", "en")
+                        parameter("t", System.currentTimeMillis())
                     }
                 }
-            val trackId = Regex("\"track_id\":(\\d+)").find(search)?.groupValues?.get(1)
-            if (trackId != null) {
-                probe("musixmatch track.subtitle.get") {
-                    client.get("$MXM/track.subtitle.get") {
-                        parameter("app_id", MXM_APP)
-                        parameter("usertoken", token)
-                        parameter("track_id", trackId)
-                        parameter("subtitle_format", "lrc")
-                    }
-                }
-            }
-            probe("musixmatch macro.subtitles.get") {
-                client.get("$MXM/macro.subtitles.get") {
-                    parameter("app_id", MXM_APP)
-                    parameter("usertoken", token)
-                    parameter("format", "json")
-                    parameter("namespace", "lyrics_richsynched")
-                    parameter("subtitle_format", "lrc")
-                    parameter("q_track", "Bohemian Rhapsody")
-                    parameter("q_artist", "Queen")
-                }
-            }
+            val token = Regex("\"user_token\"\\s*:\\s*\"([^\"]+)\"").find(body)?.groupValues?.get(1)
+            report.appendLine("musixmatch $label token: ${token?.take(8)}…\n")
         }
 
         println(report)
@@ -242,7 +158,5 @@ class ProviderDiagnosticsTest {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/124.0.0.0 Safari/537.36"
         const val CHINA_IP = "116.25.146.177"
-        const val MXM = "https://apic-desktop.musixmatch.com/ws/1.1"
-        const val MXM_APP = "web-desktop-app-v1.0"
     }
 }

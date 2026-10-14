@@ -126,6 +126,20 @@ class LyricsUtilsTest {
                 TrackMatcher.MIN_SCORE
         )
         assertEquals(0.0, TrackMatcher.score(query, "Deja Vu", "Beyoncé", null))
+
+        // A cover by someone else is another recording, even when durations agree
+        val sunny = TrackQuery(title = "晴天", artist = "周杰伦", durationMs = 269_000)
+        assertTrue(
+            TrackMatcher.score(sunny, "晴天 (原唱 周杰伦)", "RyaVocal", 269_500) < TrackMatcher.MIN_SCORE
+        )
+        // The original ranks before a karaoke or live version of the same artist
+        val original = TrackMatcher.score(query, "Deja Vu", "Olivia Rodrigo", 215_000)
+        assertTrue(
+            TrackMatcher.score(query, "Deja Vu (Karaoke)", "Olivia Rodrigo", 215_000) < original
+        )
+        assertTrue(
+            TrackMatcher.score(query, "Deja Vu (Live)", "Olivia Rodrigo", 215_000) < original
+        )
         assertTrue(TrackMatcher.score(query, "Deja Vu", "Olivia Rodrigo", 400_000) < 0.75)
 
         val best =

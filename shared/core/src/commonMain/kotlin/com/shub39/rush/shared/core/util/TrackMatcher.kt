@@ -28,6 +28,14 @@ object TrackMatcher {
     /** Results scoring below this are considered another song. */
     const val MIN_SCORE = 0.55
 
+    /** Title words of another recording (cover, karaoke), unwanted unless the song has them. */
+    private val otherRecordingWords = setOf("cover", "karaoke", "instrumental")
+    private val cjkOtherRecordingWords = listOf("翻唱", "原唱", "翻自", "伴奏")
+
+    /** Title words of another version by the same artist, ranked after the original. */
+    private val otherVersionWords = setOf("live", "remix", "acoustic")
+    private val cjkOtherVersionWords = listOf("现场")
+
     private val accents =
         mapOf(
             'à' to "a",
@@ -128,7 +136,26 @@ object TrackMatcher {
                 else -> -0.4
             }
 
-        return 0.65 * titleScore + 0.35 * artistScore + durationScore
+        return 0.65 * titleScore + 0.35 * artistScore + durationScore -
+            otherVersionPenalty(query.title, title)
+    }
+
+    /** Penalty for a cover, karaoke or live version when the played song is not one. */
+    private fun otherVersionPenalty(queryTitle: String, title: String): Double {
+        val query = normalize(queryTitle)
+        val candidate = normalize(title)
+        val queryWords = query.split(' ').toSet()
+        val candidateWords = candidate.split(' ')
+
+        fun has(words: Set<String>, cjkWords: List<String>) =
+            candidateWords.any { it in words && it !in queryWords } ||
+                cjkWords.any { it in candidate && it !in query }
+
+        return when {
+            has(otherRecordingWords, cjkOtherRecordingWords) -> 0.3
+            has(otherVersionWords, cjkOtherVersionWords) -> 0.1
+            else -> 0.0
+        }
     }
 
     /** Best scoring item above [MIN_SCORE], or null. */

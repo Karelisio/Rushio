@@ -236,6 +236,10 @@ class MusixmatchProvider : LyricsProvider {
                 val hint = message.obj("header").str("hint")?.let { ", $it" }.orEmpty()
                 throw MusixmatchException("token.get failed (status $status$hint)")
             }
+            // A token made of zeros is handed out to blocked networks, every search is empty
+            if (newToken.all { it == '0' }) {
+                throw MusixmatchException("token.get: network blocked by Musixmatch (empty token)")
+            }
 
             token = newToken
             tokenExpiresAt = now + TOKEN_LIFETIME_MS
